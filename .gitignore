@@ -5,3 +5,5 @@
 .vscode/
 dist/
 build/
+.vercel
+.env*.local

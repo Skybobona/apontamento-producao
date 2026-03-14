@@ -1,1029 +1,713 @@
-'use client'
-import { useState, useMemo, useEffect, useCallback, memo, useRef } from 'react'
-import { createClient } from '@supabase/supabase-js'
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Apontamento de Produção</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#09090b;--surface:#131316;--surface2:#1a1a1f;--surface3:#222228;--border:#27272a;--border2:#3f3f46;--text:#f4f4f5;--text2:#a1a1aa;--text3:#71717a;--red:#ef4444;--red-d:#dc2626;--amber:#f59e0b;--green:#22c55e;--radius:8px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;--mono:'JetBrains Mono',monospace}
+    html,body{height:100%}
+    body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.5;overflow:hidden}
+    body.grain::after{content:'';position:fixed;inset:0;pointer-events:none;opacity:.03;z-index:9999;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+    #root{height:100%;display:flex;flex-direction:column}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    input,select,textarea,button{font-family:inherit;font-size:inherit}
+    button{cursor:pointer;border:none;background:none;color:inherit}
+    ::-webkit-scrollbar{width:6px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+    ::-webkit-scrollbar-thumb:hover{background:var(--border2)}
+  </style>
+</head>
+<body class="grain">
+<div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100%"><div style="width:32px;height:32px;border:3px solid #27272a;border-top-color:#ef4444;border-radius:50%;animation:spin .8s linear infinite"></div></div></div>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script type="text/babel" data-type="module">
+const {useState,useEffect,useRef,useCallback,useMemo}=React;
 
-// ═══════════════════════════════════════════════
-// SUPABASE CLIENT
-// ═══════════════════════════════════════════════
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+const SUPABASE_URL='https://tohfdpnbmlqmatlopqvi.supabase.co';
+const SUPABASE_KEY='sb_publishable_fJdjI5T7UkZ-lHyDOiz5Rw_4Q_6uIua';
+const supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-// ═══════════════════════════════════════════════
-// CONSTANTS
-// ═══════════════════════════════════════════════
-const AL_DENSITY = 2.70
-const MEAL_H = 1
-const OPS = ['desbaste', 'corte', 'laminar', 'expedicao']
-const OP_L = { desbaste: 'DESBASTE', corte: 'CORTE', laminar: 'LAMINAR', expedicao: 'EXPEDIÇÃO' }
-const TABS = [
-  { k: 'pedido', l: 'Pedido' }, { k: 'desbaste', l: 'Desbaste' },
-  { k: 'corte', l: 'Corte' }, { k: 'laminar', l: 'Laminar' },
-  { k: 'expedicao', l: 'Expedição' }, { k: 'palete', l: 'Palete' },
-  { k: 'obs', l: 'Obs' }, { k: 'historico', l: 'Histórico' },
-  { k: 'comparar', l: 'Comparar' }, { k: 'ranking', l: 'Ranking' },
-  { k: 'cadastro', l: 'Chapas' }
-]
+const DEFAULT_MACHINES=['CNC 01','CNC 02','CNC 03','Torno 01','Torno 02','Fresadora 01','Retífica 01'];
+const DEFAULT_PARTS=[
+  {id:'p01',nome:'Casquilho',codigo:'CAS-001',categoria:'CNC',peso_kg:0.15,ativa:true},
+  {id:'p02',nome:'Bucha',codigo:'BUC-001',categoria:'CNC',peso_kg:0.08,ativa:true},
+  {id:'p03',nome:'Pino',codigo:'PIN-001',categoria:'CNC',peso_kg:0.22,ativa:true},
+  {id:'p04',nome:'Eixo',codigo:'EIX-001',categoria:'CNC',peso_kg:0.45,ativa:true},
+  {id:'p05',nome:'Corpo de Válvula',codigo:'CV-001',categoria:'Torno',peso_kg:0.65,ativa:true},
+  {id:'p06',nome:'Tampa',codigo:'TAM-001',categoria:'Fresadora',peso_kg:0.30,ativa:true},
+  {id:'p07',nome:'Guia',codigo:'GUI-001',categoria:'Retífica',peso_kg:0.12,ativa:true},
+  {id:'p08',nome:'Anel',codigo:'ANE-001',categoria:'CNC',peso_kg:0.05,ativa:true}
+];
+const OCC_TYPES=['Parada de máquina','Falta de material','Manutenção','Troca de setup','Qualidade','Limpeza','Reunião','Outro'];
 
-const THEMES = {
-  'warm-dark': { name: 'Warm Dark', group: 'dark', bg: '#131210', sf: '#1a1917', sf2: '#21201d', sf3: '#2a2926', bd: '#353430', bd2: '#484742', bd3: '#5c5b55', tx: '#e8e6e1', tx2: '#b5b3ac', tx3: '#8a8880', tx4: '#6b6960', accent: '#8b9dc3', accent2: '#6b82ad', accentBg: 'rgba(139,157,195,.07)', accentBorder: 'rgba(139,157,195,.18)', green: '#6ea882', greenBg: 'rgba(110,168,130,.07)', rose: '#c27070', roseBg: 'rgba(194,112,112,.07)', violet: '#9a8abf', violetBg: 'rgba(154,138,191,.07)', gold: '#c4a35a', goldBg: 'rgba(196,163,90,.07)' },
-  'midnight': { name: 'Midnight', group: 'dark', bg: '#0c1220', sf: '#111827', sf2: '#1a2332', sf3: '#243044', bd: '#2a3a50', bd2: '#3d5068', bd3: '#506880', tx: '#e2e8f0', tx2: '#94a3b8', tx3: '#64748b', tx4: '#475569', accent: '#60a5fa', accent2: '#3b82f6', accentBg: 'rgba(96,165,250,.07)', accentBorder: 'rgba(96,165,250,.18)', green: '#34d399', greenBg: 'rgba(52,211,153,.07)', rose: '#fb7185', roseBg: 'rgba(251,113,133,.07)', violet: '#a78bfa', violetBg: 'rgba(167,139,250,.07)', gold: '#fbbf24', goldBg: 'rgba(251,191,36,.07)' },
-  'charcoal': { name: 'Charcoal', group: 'dark', bg: '#111111', sf: '#1a1a1a', sf2: '#222222', sf3: '#2a2a2a', bd: '#333333', bd2: '#444444', bd3: '#555555', tx: '#e5e5e5', tx2: '#a3a3a3', tx3: '#737373', tx4: '#525252', accent: '#f59e0b', accent2: '#d97706', accentBg: 'rgba(245,158,11,.06)', accentBorder: 'rgba(245,158,11,.15)', green: '#22c55e', greenBg: 'rgba(34,197,94,.06)', rose: '#ef4444', roseBg: 'rgba(239,68,68,.06)', violet: '#a855f7', violetBg: 'rgba(168,85,247,.06)', gold: '#eab308', goldBg: 'rgba(234,179,8,.06)' },
-  'forest': { name: 'Deep Forest', group: 'dark', bg: '#0d1510', sf: '#131e16', sf2: '#1a281e', sf3: '#223026', bd: '#2a3d30', bd2: '#3d5544', bd3: '#506d58', tx: '#e0e8e2', tx2: '#a0b0a5', tx3: '#6d8070', tx4: '#506050', accent: '#4ade80', accent2: '#22c55e', accentBg: 'rgba(74,222,128,.06)', accentBorder: 'rgba(74,222,128,.15)', green: '#4ade80', greenBg: 'rgba(74,222,128,.06)', rose: '#f87171', roseBg: 'rgba(248,113,113,.06)', violet: '#c084fc', violetBg: 'rgba(192,132,252,.06)', gold: '#facc15', goldBg: 'rgba(250,204,21,.06)' },
-  'clean-white': { name: 'Clean White', group: 'light', bg: '#fafafa', sf: '#ffffff', sf2: '#f5f5f5', sf3: '#eeeeee', bd: '#e5e5e5', bd2: '#d4d4d4', bd3: '#a3a3a3', tx: '#171717', tx2: '#525252', tx3: '#737373', tx4: '#a3a3a3', accent: '#2563eb', accent2: '#1d4ed8', accentBg: 'rgba(37,99,235,.06)', accentBorder: 'rgba(37,99,235,.15)', green: '#16a34a', greenBg: 'rgba(22,163,74,.06)', rose: '#dc2626', roseBg: 'rgba(220,38,38,.06)', violet: '#7c3aed', violetBg: 'rgba(124,58,237,.06)', gold: '#ca8a04', goldBg: 'rgba(202,138,4,.06)' },
-  'warm-cream': { name: 'Warm Cream', group: 'light', bg: '#f8f5f0', sf: '#ffffff', sf2: '#faf7f2', sf3: '#f0ece5', bd: '#e5dfd6', bd2: '#d4cdc2', bd3: '#b5ad9f', tx: '#2c2820', tx2: '#5c564a', tx3: '#8a8278', tx4: '#b5ad9f', accent: '#b45309', accent2: '#92400e', accentBg: 'rgba(180,83,9,.06)', accentBorder: 'rgba(180,83,9,.15)', green: '#15803d', greenBg: 'rgba(21,128,61,.06)', rose: '#be123c', roseBg: 'rgba(190,18,60,.06)', violet: '#7e22ce', violetBg: 'rgba(126,34,206,.06)', gold: '#a16207', goldBg: 'rgba(161,98,7,.06)' },
-  'paper': { name: 'Paper', group: 'light', bg: '#f0ebe3', sf: '#f8f3eb', sf2: '#ede8e0', sf3: '#e5dfd6', bd: '#d8d2c8', bd2: '#c4bcb0', bd3: '#a89f90', tx: '#2a2520', tx2: '#5a534a', tx3: '#8a8070', tx4: '#b0a898', accent: '#4a6fa5', accent2: '#3a5f95', accentBg: 'rgba(74,111,165,.07)', accentBorder: 'rgba(74,111,165,.18)', green: '#4a8c5c', greenBg: 'rgba(74,140,92,.07)', rose: '#a85050', roseBg: 'rgba(168,80,80,.07)', violet: '#7a6aa0', violetBg: 'rgba(122,106,160,.07)', gold: '#9a7a30', goldBg: 'rgba(154,122,48,.07)' },
-  'steel': { name: 'Steel', group: 'light', bg: '#e8eaed', sf: '#f2f3f5', sf2: '#ecedf0', sf3: '#dddee2', bd: '#cccdd2', bd2: '#b8b9bf', bd3: '#98999f', tx: '#1a1c1e', tx2: '#4a4d52', tx3: '#6e7278', tx4: '#98999f', accent: '#5b7fb5', accent2: '#4a6ea5', accentBg: 'rgba(91,127,181,.07)', accentBorder: 'rgba(91,127,181,.18)', green: '#4a9a6a', greenBg: 'rgba(74,154,106,.07)', rose: '#b55555', roseBg: 'rgba(181,85,85,.07)', violet: '#7a6aaa', violetBg: 'rgba(122,106,170,.07)', gold: '#a08030', goldBg: 'rgba(160,128,48,.07)' },
-}
+const genId=()=>'id_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,9);
+const fmtDate=d=>{if(!d)return'';const dt=new Date(d);return dt.toLocaleDateString('pt-BR',{timeZone:'UTC'})};
+const fmtDateISO=d=>{if(!d)return'';const dt=new Date(d);return dt.toISOString().split('T')[0]};
+const fmtTime=t=>{if(!t)return'--:--';return t.slice(0,5)};
+const fmtHrs=h=>{if(h==null)return'0.0';return h.toFixed(1)};
+const fmtKg=k=>{if(k==null)return'0';if(k>=1000)return(k/1000).toFixed(1)+'t';return k.toFixed(1)+'kg'};
 
-function applyTheme(t) {
-  const r = document.documentElement.style
-  r.setProperty('--bg', t.bg); r.setProperty('--sf', t.sf); r.setProperty('--sf2', t.sf2); r.setProperty('--sf3', t.sf3)
-  r.setProperty('--bd', t.bd); r.setProperty('--bd2', t.bd2); r.setProperty('--bd3', t.bd3)
-  r.setProperty('--tx', t.tx); r.setProperty('--tx2', t.tx2); r.setProperty('--tx3', t.tx3); r.setProperty('--tx4', t.tx4)
-  r.setProperty('--accent', t.accent); r.setProperty('--accent2', t.accent2); r.setProperty('--accent-bg', t.accentBg); r.setProperty('--accent-border', t.accentBorder)
-  r.setProperty('--green', t.green); r.setProperty('--green-bg', t.greenBg)
-  r.setProperty('--rose', t.rose); r.setProperty('--rose-bg', t.roseBg)
-  r.setProperty('--violet', t.violet); r.setProperty('--violet-bg', t.violetBg)
-  r.setProperty('--gold', t.gold); r.setProperty('--gold-bg', t.goldBg)
-}
+const loadS=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch{return d}};
+const saveS=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{}};
 
-// ═══════════════════════════════════════════════
-// HELPERS
-// ═══════════════════════════════════════════════
-function calcPeso(c, l, e) { if (!c || !l || !e) return 0; return (c * l * e * AL_DENSITY) / 1000000 }
-function horasDiff(i, f) {
-  if (!i || !f) return 0
-  const [h1, m1] = i.split(':').map(Number), [h2, m2] = f.split(':').map(Number)
-  let d = (h2 * 60 + m2) - (h1 * 60 + m1)
-  if (d < 0) d += 1440
-  return d / 60
-}
-function fmtH(h) {
-  if (!h || h <= 0) return '0h 00m'
-  const hr = Math.floor(h), mn = Math.round((h - hr) * 60)
-  return `${hr}h ${String(mn).padStart(2, '0')}m`
-}
-function fmtKgH(v) { if (!v || v <= 0) return '—'; return v.toFixed(1) + ' kg/h' }
+// ======================== APP ========================
+function App(){
+  const [loggedIn,setLoggedIn]=useState(()=>!!localStorage.getItem('ap_user'));
+  const [user,setUser]=useState(()=>loadS('ap_user',null));
+  const [tab,setTab]=useState('dashboard');
+  const [settings,setSettings]=useState(()=>loadS('ap_settings',{theme:'dark',showCharts:true,grain:true}));
+  const [users,setUsers]=useState([]);
+  const [parts,setParts]=useState([]);
+  const [data,setData]=useState([]);
+  const [ocorrencias,setOcorrencias]=useState([]);
+  const [machines,setMachines]=useState(DEFAULT_MACHINES);
+  const [stats,setStats]=useState({total:0,kgHr:0,avgTime:0,today:0});
+  const [mComp,setMComp]=useState([]);
+  const [oComp,setOComp]=useState([]);
+  const [fDateStart,setFDateStart]=useState('');
+  const [fDateEnd,setFDateEnd]=useState('');
+  const [fMachine,setFMachine]=useState('');
+  const [fSearch,setFSearch]=useState('');
+  const [hLimit,setHLimit]=useState(50);
+  const [formM,setFormM]=useState('');
+  const [formP,setFormP]=useState('');
+  const [formO,setFormO]=useState('');
+  const [formQ,setFormQ]=useState('100');
+  const [formS,setFormS]=useState('');
+  const [formE,setFormE]=useState('');
+  const [formObs,setFormObs]=useState('');
+  const [occT,setOccT]=useState(OCC_TYPES[0]);
+  const [occM,setOccM]=useState('');
+  const [occDesc,setOccDesc]=useState('');
+  const [occP,setOccP]=useState('');
+  const [occLim,setOccLim]=useState(50);
+  const [newU,setNewU]=useState('');
+  const [newP,setNewP]=useState('');
+  const [newN,setNewN]=useState('');
+  const [newPCat,setNewPCat]=useState('');
+  const [newPCod,setNewPCod]=useState('');
+  const [newPPeso,setNewPPeso]=useState('0.10');
+  const [newMN,setNewMN]=useState('');
+  const [showDel,setShowDel]=useState(null);
 
-// ═══════════════════════════════════════════════
-// SUPABASE API FUNCTIONS
-// ═══════════════════════════════════════════════
-const API = {
-  // CHAPAS
-  async getChapas() {
-    const { data, error } = await supabase.from('chapas').select('*').order('comprimento')
-    if (error) { console.error('Erro ao buscar chapas:', error); return [] }
-    return data.map(c => ({ id: c.id, nome: c.nome, c: c.comprimento, l: c.largura, e: c.espessura }))
-  },
+  const isAdmin=useMemo(()=>user?.perfil==='admin',[user]);
 
-  async addChapa(nome, c, l, e) {
-    const { data, error } = await supabase.from('chapas')
-      .insert({ nome: nome.toUpperCase(), comprimento: c, largura: l, espessura: e })
-      .select().single()
-    if (error) { console.error('Erro ao adicionar chapa:', error); return null }
-    return { id: data.id, nome: data.nome, c: data.comprimento, l: data.largura, e: data.espessura }
-  },
-
-  async deleteChapa(id) {
-    const { error } = await supabase.from('chapas').delete().eq('id', id)
-    if (error) console.error('Erro ao deletar chapa:', error)
-    return !error
-  },
-
-  // ORDENS DE SERVIÇO
-  async getOS() {
-    const { data, error } = await supabase
-      .from('ordens_servico')
-      .select('*')
-      .order('created_at', { ascending: false })
-    if (error) { console.error('Erro ao buscar OS:', error); return [] }
-    return data
-  },
-
-  async saveOS(osData) {
-    const { data, error } = await supabase
-      .from('ordens_servico')
-      .upsert({
-        id: osData.id || undefined,
-        numero: osData.osNum,
-        cliente: osData.cliente,
-        data: osData.data,
-        chapa_id: osData.chapaId,
-        chapa_nome: osData.chapaNome,
-        qtd_chapas: osData.qtd,
-        qtd_pedacos: osData.pedacos,
-        corte_mm: osData.corte,
-        desbaste_mm: osData.desbaste,
-        laminar_pct: osData.laminar,
-        medida_final: osData.medida,
-        tempera: osData.tempera,
-        palete_numero: osData.paleteNum,
-        observacoes: osData.observacoes,
-        peso_total_chapas: osData.pesoTotalChapas,
-        peso_total_pedacos: osData.pesoTotalPedacos,
-        peso_chapa_unit: osData.pesoChapaUnit,
-        peso_pedaco_unit: osData.pesoPedacoUnit,
-        esp_removida: osData.espRemovida,
-        peso_removido: osData.pesoRemovido,
-      })
-      .select()
-      .single()
-    if (error) { console.error('Erro ao salvar OS:', error); return null }
-    return data
-  },
-
-  async deleteOS(id) {
-    // Deleta cascata: lancamentos são deletados automaticamente
-    const { error } = await supabase.from('ordens_servico').delete().eq('id', id)
-    if (error) console.error('Erro ao deletar OS:', error)
-    return !error
-  },
-
-  // LANÇAMENTOS
-  async getLancamentos(osId) {
-    const { data, error } = await supabase
-      .from('lancamentos')
-      .select('*')
-      .eq('os_id', osId)
-      .order('created_at')
-    if (error) { console.error('Erro ao buscar lançamentos:', error); return [] }
-    return data.map(l => ({
-      id: l.id, m: l.maquina, op: l.operador, i: l.hora_inicio, f: l.hora_fim,
-      meal: l.tem_almoco, operacao: l.operacao
-    }))
-  },
-
-  async getAllLancamentos() {
-    const { data, error } = await supabase
-      .from('lancamentos')
-      .select('*')
-      .order('created_at')
-    if (error) { console.error('Erro ao buscar lançamentos:', error); return [] }
-    return data
-  },
-
-  async addLancamento(osId, op, lancamento) {
-    const hB = horasDiff(lancamento.i, lancamento.f)
-    const hP = lancamento.meal && hB > MEAL_H ? hB - MEAL_H : hB
-    const { data, error } = await supabase
-      .from('lancamentos')
-      .insert({
-        os_id: osId,
-        operacao: op,
-        maquina: lancamento.m,
-        operador: lancamento.op.toUpperCase(),
-        hora_inicio: lancamento.i,
-        hora_fim: lancamento.f,
-        tem_almoco: lancamento.meal,
-        horas_brutas: hB,
-        horas_produtivas: hP,
-      })
-      .select()
-      .single()
-    if (error) { console.error('Erro ao adicionar lançamento:', error); return null }
-    return { id: data.id, m: data.maquina, op: data.operador, i: data.hora_inicio, f: data.hora_fim, meal: data.tem_almoco, operacao: data.operacao }
-  },
-
-  async deleteLancamento(id) {
-    const { error } = await supabase.from('lancamentos').delete().eq('id', id)
-    if (error) console.error('Erro ao deletar lançamento:', error)
-    return !error
-  },
-
-  async toggleAlmoco(id, currentValue) {
-    const { error } = await supabase.from('lancamentos').update({ tem_almoco: !currentValue }).eq('id', id)
-    if (error) console.error('Erro ao atualizar almoço:', error)
-    return !error
-  }
-}
-
-// ═══════════════════════════════════════════════
-// STABLE COMPONENTS (memoized)
-// ═══════════════════════════════════════════════
-const OsBar = memo(function OsBar({ osNum, osStatus, onOsNumChange, onSave, onNew }) {
-  const handleChange = useCallback((e) => {
-    onOsNumChange(e.target.value.toUpperCase())
-  }, [onOsNumChange])
-
-  return (
-    <div className="os-bar">
-      <div className="os-field">
-        <label>Nº OS</label>
-        <input
-          value={osNum}
-          onChange={handleChange}
-          placeholder="Ex: OS-2025-0001"
-          spellCheck={false}
-          autoComplete="off"
-        />
-        <span className={`os-status ${osStatus}`}>
-          {osStatus === 'saved' ? '✓ SALVA' : 'RASCUNHO'}
-        </span>
-      </div>
-      <div className="os-actions">
-        <button className="btn btn-g btn-sm" onClick={onSave}>💾 SALVAR OS</button>
-        <button className="btn btn-w btn-sm" onClick={onNew}>📄 NOVA OS</button>
-      </div>
-    </div>
-  )
-})
-
-const ThemePanel = memo(function ThemePanel({ currentTheme, showPanel, onToggle, onSelect }) {
-  useEffect(() => {
-    const h = (e) => {
-      if (!e.target.closest('.theme-fab') && !e.target.closest('.theme-panel')) onToggle(false)
+  useEffect(()=>{
+    if(!loggedIn){
+      const u=loadS('ap_user',null);
+      if(u){setUser(u);setLoggedIn(true);return}
     }
-    if (showPanel) document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
-  }, [showPanel, onToggle])
-
-  return <>
-    <button className={`theme-fab ${showPanel ? 'open' : ''}`} onClick={() => onToggle(!showPanel)} title="Temas">
-      {THEMES[currentTheme]?.group === 'dark' ? '🌙' : '☀️'}
-    </button>
-    {showPanel && <div className="theme-panel">
-      <div className="theme-panel-hd">Temas</div>
-      <div className="theme-group">
-        <div className="theme-group-label">Escuros</div>
-        {Object.entries(THEMES).filter(([, t]) => t.group === 'dark').map(([key, t]) => (
-          <div key={key} className={`theme-opt ${currentTheme === key ? 'active' : ''}`} onClick={() => onSelect(key)}>
-            <div className="theme-dot" style={{ background: t.bg, borderColor: t.bd }}></div>{t.name}
-            <span className="theme-check">✓</span>
-          </div>))}
-      </div>
-      <div className="theme-group">
-        <div className="theme-group-label">Claros</div>
-        {Object.entries(THEMES).filter(([, t]) => t.group === 'light').map(([key, t]) => (
-          <div key={key} className={`theme-opt ${currentTheme === key ? 'active' : ''}`} onClick={() => onSelect(key)}>
-            <div className="theme-dot" style={{ background: t.bg, borderColor: t.bd }}></div>{t.name}
-            <span className="theme-check">✓</span>
-          </div>))}
-      </div>
-    </div>}
-  </>
-})
-
-// ═══════════════════════════════════════════════
-// MAIN APP
-// ═══════════════════════════════════════════════
-export default function App() {
-  const [currentTheme, setCurrentTheme] = useState('warm-dark')
-  const [showThemePanel, setShowThemePanel] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState('pedido')
-  const [plates, setPlates] = useState([])
-  const [osNum, setOsNum] = useState('')
-  const [osStatus, setOsStatus] = useState('draft')
-  const [currentOsId, setCurrentOsId] = useState(null)
-  const [ord, setOrd] = useState({
-    cliente: '', data: new Date().toISOString().slice(0, 10),
-    tipoId: '', qtd: '', pedacos: '', desb: '', corte: '',
-    lam: '', medida: '', tempera: ''
-  })
-  const [logs, setLogs] = useState({ desbaste: [], corte: [], laminar: [], expedicao: [] })
-  const [forms, setForms] = useState({
-    desbaste: { m: '', op: '', i: '', f: '', meal: false },
-    corte: { m: '', op: '', i: '', f: '', meal: false },
-    laminar: { m: '', op: '', i: '', f: '', meal: false },
-    expedicao: { m: '', op: '', i: '', f: '', meal: false }
-  })
-  const [savedOS, setSavedOS] = useState([])
-  const [compareIds, setCompareIds] = useState([])
-  const [showModal, setShowModal] = useState(false)
-  const [newPlate, setNewPlate] = useState({ nome: '', c: '', l: 800, e: 9.20 })
-  const [observacoes, setObservacoes] = useState('')
-
-  // ═══ LOAD INITIAL DATA ═══
-  useEffect(() => {
-    applyTheme(THEMES[currentTheme])
-  }, [currentTheme])
-
-  useEffect(() => {
-    async function loadData() {
-      setLoading(true)
-      const [chapasData, osData] = await Promise.all([
-        API.getChapas(),
-        API.getOS()
-      ])
-      setPlates(chapasData.length > 0 ? chapasData : [
-        { id: 1, nome: 'CHAPA 100', c: 100, l: 800, e: 9.20 },
-        { id: 2, nome: 'CHAPA 150', c: 150, l: 800, e: 9.20 },
-        { id: 3, nome: 'CHAPA 200', c: 200, l: 800, e: 9.20 },
-        { id: 4, nome: 'CHAPA 250', c: 250, l: 800, e: 9.20 },
-        { id: 5, nome: 'CHAPA 320', c: 320, l: 800, e: 9.20 },
-        { id: 6, nome: 'CHAPA 400', c: 400, l: 800, e: 9.20 },
-        { id: 7, nome: 'CHAPA 500', c: 500, l: 800, e: 9.20 },
-        { id: 8, nome: 'CHAPA 600', c: 600, l: 800, e: 9.20 },
-        { id: 9, nome: 'CHAPA 800', c: 800, l: 800, e: 9.20 },
-        { id: 10, nome: 'CHAPA 1000', c: 1000, l: 800, e: 9.20 },
-      ])
-      setSavedOS(osData)
-      setLoading(false)
+    if(loggedIn){
+      loadS('ap_users',[]).then(async()=>{
+        try{const{data:r}=await supabase.from('usuarios').select('*').eq('ativo',true);if(r)setUsers(r)}catch{}
+      });
+      (async()=>{try{const{data:r}=await supabase.from('configuracoes').select('*');if(r){const s={};r.forEach(c=>s[c.chave]=c.valor);const m=Object.keys(s).length?s:null;if(m){const ns={...settings,...m};setSettings(ns);saveS('ap_settings',ns)}}}catch{}})();
+      refresh();
     }
-    loadData()
-  }, [])
+  },[loggedIn]);
 
-  // ═══ CALCULATIONS ═══
-  const plateSel = plates.find(p => p.id === Number(ord.tipoId))
-  const espPedaco = Number(ord.desb) || 0
-  const corteVal = Number(ord.corte) || 0
-  const qtd = Number(ord.qtd) || 0
-  const nPed = Number(ord.pedacos) || 0
-  const pesoChapaUnit = plateSel ? calcPeso(plateSel.c, plateSel.l, plateSel.e) : 0
-  const pesoTotalChapas = pesoChapaUnit * qtd
-  const largPedaco = plateSel ? plateSel.c : 0
-  const compPedaco = corteVal
-  const espChapa = plateSel ? plateSel.e : 9.20
-  const pesoPedaco = calcPeso(compPedaco, largPedaco, espPedaco)
-  const pesoTotalPedacos = pesoPedaco * nPed
+  useEffect(()=>{
+    if(!loggedIn)return;
+    const i=setInterval(()=>{refresh()},30000);
+    return()=>clearInterval(i);
+  },[loggedIn]);
 
-  const opSum = useMemo(() => {
-    const r = {}
-    OPS.forEach(op => {
-      const entries = logs[op]
-      let horas = 0
-      entries.forEach(e => {
-        let h = horasDiff(e.i, e.f)
-        if (e.meal && h > MEAL_H) h -= MEAL_H
-        horas += h
-      })
-      const oeeCh = horas > 0 && pesoTotalChapas > 0 ? pesoTotalChapas / horas : 0
-      const oeePc = horas > 0 && pesoTotalPedacos > 0 ? pesoTotalPedacos / horas : 0
-      r[op] = { horas, n: entries.length, oeeCh, oeePc }
-    })
-    const tH = OPS.reduce((s, op) => s + (r[op]?.horas || 0), 0)
-    r._t = {
-      horas: tH,
-      oeeCh: tH > 0 && pesoTotalChapas > 0 ? pesoTotalChapas / tH : 0,
-      oeePc: tH > 0 && pesoTotalPedacos > 0 ? pesoTotalPedacos / tH : 0
-    }
-    return r
-  }, [logs, pesoTotalChapas, pesoTotalPedacos])
+  useEffect(()=>{
+    document.body.className=settings.grain?'grain':'';
+  },[settings.grain]);
 
-  // ═══ CALLBACKS ═══
-  const handleOsNumChange = useCallback((val) => {
-    setOsNum(val)
-    setOsStatus('draft')
-  }, [])
+  const updateSettings=useCallback(async(ns)=>{
+    setSettings(ns);saveS('ap_settings',ns);
+    try{for(const[k,v]of Object.entries(ns)){await supabase.from('configuracoes').upsert({id:'cfg_'+k,chave:k,valor:String(v)},{onConflict:'id'})}}catch{}
+  },[]);
 
-  const setO = useCallback((k, v) => setOrd(p => ({ ...p, [k]: v })), [])
-  const setF = useCallback((o, k, v) => setForms(p => ({ ...p, [o]: { ...p[o], [k]: v } })), [])
+  const login=useCallback(async(u,p)=>{
+    try{
+      const{data:r}=await supabase.from('usuarios').select('*').eq('username',u).eq('senha',p).eq('ativo',true).single();
+      if(r){setUser(r);setLoggedIn(true);localStorage.setItem('ap_user',JSON.stringify(r));setTab('dashboard');const t=new Date();setFDateStart(fmtDateISO(new Date(t.getFullYear(),t.getMonth(),1)));setFDateEnd(fmtDateISO(t));return true}
+      alert('Usuário ou senha inválidos');return false
+    }catch{alert('Erro ao conectar');return false}
+  },[]);
 
-  const handleSaveOS = useCallback(async () => {
-    if (!osNum.trim()) { alert('INFORME O NÚMERO DA OS ANTES DE SALVAR.'); return }
-    const result = await API.saveOS({
-      id: currentOsId,
-      osNum, cliente: ord.cliente, data: ord.data,
-      chapaId: ord.tipoId, chapaNome: plateSel?.nome || '',
-      qtd, pedacos: nPed, corte: corteVal, desbaste: espPedaco,
-      laminar: ord.lam, medida: ord.medida, tempera: ord.tempera,
-      paleteNum: '', observacoes,
-      pesoTotalChapas, pesoTotalPedacos, pesoChapaUnit, pesoPedacoUnit: pesoPedaco,
-      espRemovida: espPedaco > 0 ? espChapa - espPedaco : 0,
-      pesoRemovido: (calcPeso(compPedaco, largPedaco, espChapa) - pesoPedaco) * nPed,
-    })
-    if (result) {
-      setCurrentOsId(result.id)
-      setOsStatus('saved')
-      // Reload OS list
-      const osData = await API.getOS()
-      setSavedOS(osData)
-    }
-  }, [osNum, ord, currentOsId, plateSel, qtd, nPed, corteVal, espPedaco, espChapa, compPedaco, largPedaco, pesoPedaco, pesoTotalChapas, pesoTotalPedacos, pesoChapaUnit, observacoes])
+  const logout=useCallback(()=>{localStorage.removeItem('ap_user');setUser(null);setLoggedIn(false)},[]);
 
-  const handleNewOS = useCallback(() => {
-    if (osStatus === 'draft' && (ord.cliente || osNum)) {
-      if (!confirm('CRIAR NOVA OS? OS DADOS ATUAIS NÃO SALVOS SERÃO PERDIDOS.')) return
-    }
-    setOsNum(''); setOsStatus('draft'); setCurrentOsId(null)
-    setOrd({ cliente: '', data: new Date().toISOString().slice(0, 10), tipoId: '', qtd: '', pedacos: '', desb: '', corte: '', lam: '', medida: '', tempera: '' })
-    setLogs({ desbaste: [], corte: [], laminar: [], expedicao: [] })
-    setForms({ desbaste: { m: '', op: '', i: '', f: '', meal: false }, corte: { m: '', op: '', i: '', f: '', meal: false }, laminar: { m: '', op: '', i: '', f: '', meal: false }, expedicao: { m: '', op: '', i: '', f: '', meal: false } })
-    setObservacoes(''); setTab('pedido')
-  }, [osStatus, ord, osNum])
+  const refresh=useCallback(async()=>{
+    try{
+      const[ar,pr,dr]=await Promise.all([
+        supabase.from('apontamentos').select('*').order('created_at',{ascending:false}),
+        supabase.from('pecas').select('*'),
+        supabase.from('ocorrencias').select('*').order('created_at',{ascending:false})
+      ]);
+      const a=ar.data||[];const p=pr.data||[];const d=dr.data||[];
+      setData(a);setParts(p);setOcorrencias(d);
+      if(p.length)setMachines([...new Set(p.map(x=>x.categoria).filter(Boolean))]);
+      const tot=a.reduce((s,x)=>s+x.quantidade,0);
+      const sec=a.reduce((s,x)=>s+(x.tempo_segundos||0),0);
+      const hrs=sec/3600;
+      const tKg=a.reduce((s,x)=>{const pt=p.find(y=>y.id===x.peca_id);return s+x.quantidade*(pt?.peso_kg||0)},0);
+      const td=fmtDateISO(new Date());
+      const tQ=a.filter(x=>x.data?.startsWith(td)).reduce((s,x)=>s+x.quantidade,0);
+      setStats({total:tot,kgHr:hrs>0?tKg/hrs:0,avgTime:tot>0?sec/tot:0,today:tQ});
+      computeComp(a,p);
+    }catch(e){console.error(e)}
+  },[]);
 
-  const loadOS = useCallback(async (os) => {
-    setOsNum(os.numero || ''); setOsStatus('saved'); setCurrentOsId(os.id)
-    setOrd({
-      cliente: os.cliente || '', data: os.data || '',
-      tipoId: os.chapa_id?.toString() || '', qtd: os.qtd_chapas?.toString() || '',
-      pedacos: os.qtd_pedacos?.toString() || '', desb: os.desbaste_mm?.toString() || '',
-      corte: os.corte_mm?.toString() || '', lam: os.laminar_pct?.toString() || '',
-      medida: os.medida_final || '', tempera: os.tempera || ''
-    })
-    setObservacoes(os.observacoes || '')
-    // Load lancamentos
-    const lancData = await API.getLancamentos(os.id)
-    const newLogs = { desbaste: [], corte: [], laminar: [], expedicao: [] }
-    lancData.forEach(l => {
-      if (newLogs[l.operacao]) newLogs[l.operacao].push(l)
-    })
-    setLogs(newLogs)
-    setTab('pedido')
-  }, [])
+  const computeComp=(ap,pr)=>{
+    const mb={};const ob={};
+    ap.forEach(a=>{const pt=pr.find(x=>x.id===a.peca_id);const kg=a.quantidade*(pt?.peso_kg||0);const h=(a.tempo_segundos||0)/3600;
+      if(!mb[a.maquina])mb[a.maquina]={q:0,kg:0,h:0};
+      mb[a.maquina].q+=a.quantidade;mb[a.maquina].kg+=kg;mb[a.maquina].h+=h;
+      if(!ob[a.operador])ob[a.operador]={q:0,kg:0,h:0};
+      ob[a.operador].q+=a.quantidade;ob[a.operador].kg+=kg;ob[a.operador].h+=h});
+    const ml=Object.entries(mb).map(([n,v])=>({...n,...v,kgHr:v.h>0?v.kg/v.h:0})).sort((a,b)=>b.kgHr-a.kgHr);
+    const ol=Object.entries(ob).map(([n,v])=>({...n,...v,kgHr:v.h>0?v.kg/v.h:0})).sort((a,b)=>b.kgHr-a.kgHr);
+    const mA=ml.reduce((s,x)=>s+x.kgHr,0)/(ml.length||1);
+    const oA=ol.reduce((s,x)=>s+x.kgHr,0)/(ol.length||1);
+    setMComp(ml.map(x=>({...x,pct:mA>0?((x.kgHr/mA)*100).toFixed(0):'0'})));
+    setOComp(ol.map(x=>({...x,pct:oA>0?((x.kgHr/oA)*100).toFixed(0):'0'})));
+  };
 
-  const deleteOS = useCallback(async (id) => {
-    if (!confirm('EXCLUIR ESTA OS?')) return
-    await API.deleteOS(id)
-    setSavedOS(p => p.filter(o => o.id !== id))
-    if (currentOsId === id) handleNewOS()
-  }, [currentOsId, handleNewOS])
+  const filterByDate=(arr,days)=>{
+    const now=new Date();const past=new Date(now);past.setDate(past.getDate()-days);
+    return arr.filter(x=>{const d=new Date(x.data);return d>=past&&d<=now})
+  };
 
-  const toggleCompare = useCallback((id) => {
-    setCompareIds(p => p.includes(id) ? p.filter(x => x !== id) : p.length < 4 ? [...p, id] : p)
-  }, [])
+  const addPart=async()=>{
+    const n=newPCod.trim();if(!n){alert('Informe o código');return}
+    if(parts.some(x=>x.codigo===n)){alert('Código já existe');return}
+    const r={id:genId(),nome:n.replace(/[-_]/g,' '),codigo:n,categoria:newPCat||'Geral',peso_kg:parseFloat(newPPeso)||0.1,ativa:true};
+    try{await supabase.from('pecas').insert(r);setNewPCod('');setNewPCat('');setNewPPeso('0.10');refresh()}catch(e){alert('Erro: '+e.message)}
+  };
+  const delPart=async(id)=>{if(!confirm('Excluir peça?'))return;try{await supabase.from('pecas').delete().eq('id',id);refresh()}catch(e){alert('Erro')}};
 
-  const addLog = useCallback(async (op) => {
-    const f = forms[op]
-    if (!f.m || !f.op || !f.i || !f.f) return
-    if (!currentOsId) {
-      alert('SALVE A OS PRIMEIRO ANTES DE ADICIONAR LANÇAMENTOS.')
-      return
-    }
-    const result = await API.addLancamento(currentOsId, op, f)
-    if (result) {
-      setLogs(p => ({ ...p, [op]: [...p[op], result] }))
-      setForms(p => ({ ...p, [op]: { m: '', op: '', i: '', f: '', meal: false } }))
-    }
-  }, [forms, currentOsId])
+  const addEntry=async()=>{
+    if(!formM||!formP||!formO){alert('Preencha máquina, peça e operador');return}
+    const q=parseInt(formQ)||1;
+    let secs=0;
+    if(formS&&formE){const[sh,sm]=formS.split(':').map(Number);const[eh,em]=formE.split(':').map(Number);secs=(eh*60+em)-(sh*60+sm);if(secs<=0)secs+=1440}
+    if(secs<=0){alert('Horários inválidos');return}
+    const r={id:genId(),operador:formO,maquina:formM,peca_id:formP,peca_nome:parts.find(x=>x.id===formP)?.nome||'',tempo_segundos:secs,quantidade:q,data:new Date().toISOString(),hora_inicio:formS,hora_fim:formE,observacoes:formObs||null};
+    try{await supabase.from('apontamentos').insert(r);
+      const pt=parts.find(x=>x.id===formP);const kg=q*(pt?.peso_kg||0);const h=secs/3600;
+      alert(`Apontamento registrado!\n${q} peças × ${(pt?.peso_kg||0).toFixed(2)}kg = ${kg.toFixed(1)}kg\n${fmtHrs(h)}h → ${(h>0?(kg/h):0).toFixed(1)} kg/h`);
+      setFormQ('100');setFormS('');setFormE('');setFormObs('');refresh()}catch(e){alert('Erro: '+e.message)}
+  };
+  const delEntry=async(id)=>{try{await supabase.from('apontamentos').delete().eq('id',id);refresh()}catch(e){alert('Erro')}};
 
-  const delLog = useCallback(async (op, id) => {
-    await API.deleteLancamento(id)
-    setLogs(p => ({ ...p, [op]: p[op].filter(e => e.id !== id) }))
-  }, [])
+  const addOcc=async()=>{
+    if(!occM){alert('Informe a máquina');return}
+    const r={id:genId(),operador:user?.nome||'',maquina:occM,peca_nome:occP||null,tipo:occT,descricao:occDesc||null,data:new Date().toISOString(),hora:new Date().toTimeString().slice(0,5)};
+    try{await supabase.from('ocorrencias').insert(r);alert('Ocorrência registrada!');setOccM('');setOccDesc('');setOccP('');refresh()}catch(e){alert('Erro: '+e.message)}
+  };
+  const delOcc=async(id)=>{try{await supabase.from('ocorrencias').delete().eq('id',id);refresh()}catch(e){alert('Erro')}};
 
-  const togLog = useCallback(async (op, id) => {
-    const entry = logs[op].find(e => e.id === id)
-    if (!entry) return
-    await API.toggleAlmoco(id, entry.meal)
-    setLogs(p => ({ ...p, [op]: p[op].map(e => e.id === id ? { ...e, meal: !e.meal } : e) }))
-  }, [logs])
+  const addUser=async()=>{
+    if(!newU.trim()||!newP.trim()){alert('Preencha usuário e senha');return}
+    if(users.some(x=>x.username===newU.trim())){alert('Usuário já existe');return}
+    const r={id:genId(),username:newU.trim(),senha:newP.trim(),nome:newN.trim()||newU.trim(),perfil:'operador',ativo:true};
+    try{await supabase.from('usuarios').insert(r);alert('Usuário criado!');setNewU('');setNewP('');setNewN('');
+      const{data}=await supabase.from('usuarios').select('*');if(data)setUsers(data)}catch(e){alert('Erro: '+e.message)}
+  };
+  const togUser=async(id,a)=>{try{await supabase.from('usuarios').update({ativo:!a}).eq('id',id);const{data}=await supabase.from('usuarios').select('*');if(data)setUsers(data)}catch(e){alert('Erro')}};
+  const rstPwd=async(id)=>{const p=prompt('Nova senha:');if(!p)return;try{await supabase.from('usuarios').update({senha:p}).eq('id',id);alert('Senha alterada!')}catch(e){alert('Erro')}};
 
-  const addPlate = useCallback(async () => {
-    if (!newPlate.nome || !newPlate.c) return
-    const result = await API.addChapa(newPlate.nome, Number(newPlate.c), Number(newPlate.l || 800), Number(newPlate.e || 9.20))
-    if (result) {
-      setPlates(p => [...p, result])
-      setNewPlate({ nome: '', c: '', l: 800, e: 9.20 })
-      setShowModal(false)
-    }
-  }, [newPlate])
+  const addMachine=async()=>{
+    const n=newMN.trim();if(!n||machines.includes(n))return;
+    setMachines(p=>[...p,n]);setNewMN('');
+    try{await supabase.from('configuracoes').upsert({id:'cfg_machines',chave:'machines',valor:JSON.stringify([...machines,n])},{onConflict:'id'})}catch{}
+  };
+  const delMachine=async(nm)=>{
+    const u=machines.filter(x=>x!==nm);setMachines(u);
+    try{await supabase.from('configuracoes').upsert({id:'cfg_machines',chave:'machines',valor:JSON.stringify(u)},{onConflict:'id'})}catch{}
+  };
 
-  const delPlate = useCallback(async (id) => {
-    await API.deleteChapa(id)
-    setPlates(p => p.filter(x => x.id !== id))
-  }, [])
+  const exportExcel=()=>{
+    if(!data.length){alert('Sem dados');return}
+    const f=data.filter(x=>{const d=fmtDateISO(x.data);const s=fDateStart?d>=fDateStart:true;const e=fDateEnd?d<=fDateEnd:true;return s&&e});
+    const rows=f.map(a=>{const pt=parts.find(x=>x.id===a.peca_id);const kg=a.quantidade*(pt?.peso_kg||0);const h=(a.tempo_segundos||0)/3600;
+      return{'Data':fmtDate(a.data),'Hora Início':a.hora_inicio,'Hora Fim':a.hora_fim,'Operador':a.operador,'Máquina':a.maquina,'Peça':a.peca_nome,'Qtd':a.quantidade,'Peso Unit (kg)':pt?.peso_kg||0,'Total (kg)':parseFloat(kg.toFixed(2)),'Tempo (h)':parseFloat(h.toFixed(2)),'Kg/h':parseFloat(h>0?(kg/h).toFixed(1):'0')}});
+    const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Apontamentos');
+    XLSX.writeFile(wb,`apontamentos_${fmtDateISO(new Date())}.xlsx`);
+  };
+  const exportPDF=()=>{
+    if(!data.length){alert('Sem dados');return}
+    const f=data.filter(x=>{const d=fmtDateISO(x.data);const s=fDateStart?d>=fDateStart:true;const e=fDateEnd?d<=fDateEnd:true;return s&&e});
+    const w=window.open('','_blank');
+    w.document.write(`<!DOCTYPE html><html><head><title>Relatório</title><style>
+      *{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:24px;color:#222}
+      h1{font-size:18px;margin-bottom:4px}p.sub{font-size:12px;color:#666;margin-bottom:20px}
+      table{width:100%;border-collapse:collapse;font-size:11px}th{background:#f3f4f6;padding:8px;text-align:left;border:1px solid #ddd}
+      td{padding:6px 8px;border:1px solid #ddd}.n{text-align:right;font-family:monospace}
+      @media print{body{padding:12px}h1{font-size:16px}}
+    </style></head><body>
+    <h1>Apontamento de Produção</h1><p class="sub">${fDateStart} a ${fDateEnd} | ${f.length} registros</p>
+    <table><thead><tr><th>Data</th><th>Operador</th><th>Máquina</th><th>Peça</th><th class="n">Qtd</th><th class="n">Kg</th><th class="n">Tempo</th><th class="n">Kg/h</th></tr></thead><tbody>
+    ${f.map(a=>{const pt=parts.find(x=>x.id===a.peca_id);const kg=a.quantidade*(pt?.peso_kg||0);const h=(a.tempo_segundos||0)/3600;
+      return`<tr><td>${fmtDate(a.data)}</td><td>${a.operador}</td><td>${a.maquina}</td><td>${a.peca_nome}</td><td class="n">${a.quantidade}</td><td class="n">${kg.toFixed(1)}</td><td class="n">${h.toFixed(1)}h</td><td class="n">${(h>0?(kg/h):0).toFixed(1)}</td></tr>`}).join('')}
+    </tbody></table><script>setTimeout(()=>window.print(),500)<\/script></body></html>`);
+    w.document.close();
+  };
+  const printView=()=>exportPDF();
 
-  // ═══ CALC OEE FOR RANKING ═══
-  const calcOsOee = useCallback(async (os) => {
-    const lancs = await API.getLancamentos(os.id)
-    const lamLancs = lancs.filter(l => l.operacao === 'laminar')
-    let horas = 0
-    lamLancs.forEach(l => {
-      let h = horasDiff(l.i, l.f)
-      if (l.meal && h > MEAL_H) h -= MEAL_H
-      horas += h
-    })
-    const pesoCh = os.peso_total_chapas || 0
-    const pesoPc = os.peso_total_pedacos || 0
-    return {
-      lamCh: horas > 0 && pesoCh > 0 ? pesoCh / horas : 0,
-      lamPc: horas > 0 && pesoPc > 0 ? pesoPc / horas : 0,
-      horas
-    }
-  }, [])
+  const partById=id=>parts.find(x=>x.id===id);
 
-  // ═══ RANKING DATA ═══
-  const [rankingData, setRankingData] = useState([])
-  useEffect(() => {
-    async function loadRanking() {
-      const data = await Promise.all(savedOS.map(async os => {
-        const oee = await calcOsOee(os)
-        return { ...os, ...oee }
-      }))
-      setRankingData(data.filter(o => o.lamCh > 0 || o.lamPc > 0))
-    }
-    if (savedOS.length > 0 && tab === 'ranking') loadRanking()
-  }, [savedOS, tab, calcOsOee])
-
-  // ═══ RENDER FUNCTIONS ═══
-  const renderOeeDuo = (op) => {
-    const s = opSum[op], isD = op === 'desbaste'
-    const tot = pesoTotalChapas + pesoTotalPedacos
-    const pctCh = tot > 0 ? (pesoTotalChapas / tot * 100) : 50
-    const pctPc = tot > 0 ? (pesoTotalPedacos / tot * 100) : 50
-    return (<>
-      <div className="sg">
-        <div className="sc"><div className="v">{fmtH(s.horas)}</div><div className="l">HORAS PRODUTIVAS</div></div>
-        <div className="sc"><div className="v">{s.n}</div><div className="l">LANÇAMENTOS</div></div>
-      </div>
-      <div className="oee-duo">
-        <div className="oee-panel ch">
-          <div className="ot">CHAPAS</div>
-          <div className="ov">
-            <div className="oi"><div className="ovv">{pesoTotalChapas.toFixed(2)}</div><div className="ol">PESO (KG)</div></div>
-            <div className="oi"><div className="ovv">{fmtKgH(s.oeeCh)}</div><div className="ol">OEE (KG/H)</div></div>
+  // ========== LOGIN ==========
+  if(!loggedIn){
+    return(
+      <div style={{height:'100%',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--bg)',padding:'16px'}}>
+        <div style={{width:'100%',maxWidth:'400px',animation:'fadeUp .5s ease'}}>
+          <div style={{textAlign:'center',marginBottom:'32px'}}>
+            <div style={{fontSize:'36px',fontWeight:'700',marginBottom:'4px',letterSpacing:'-1px'}}><span style={{color:'var(--red)'}}>P</span>rodution</div>
+            <p style={{color:'var(--text3)',fontSize:'14px'}}>Sistema de Apontamento</p>
           </div>
-          <div className="fbox" style={{ marginTop: '.6rem', marginBottom: 0, fontSize: '.58rem' }}>
-            {pesoTotalChapas.toFixed(2)} KG ÷ {fmtH(s.horas)} = <strong className="hl">{fmtKgH(s.oeeCh)}</strong>
-          </div>
-        </div>
-        {!isD && <div className="oee-panel pc">
-          <div className="ot">PEDAÇOS</div>
-          <div className="ov">
-            <div className="oi"><div className="ovv">{pesoTotalPedacos.toFixed(2)}</div><div className="ol">PESO (KG)</div></div>
-            <div className="oi"><div className="ovv">{fmtKgH(s.oeePc)}</div><div className="ol">OEE (KG/H)</div></div>
-          </div>
-        </div>}
-      </div>
-      {!isD && pesoTotalPedacos > 0 && <div className="oee-diff">
-        <span className="df-l">DIFERENÇA</span>
-        <span className="df-v">{Math.abs(pesoTotalChapas - pesoTotalPedacos).toFixed(2)} KG</span>
-        <div className="df-bar">
-          <div className="df-ch" style={{ width: `${pctCh}%` }}></div>
-          <div className="df-pc" style={{ width: `${pctPc}%` }}></div>
-        </div>
-        <span className="df-tag ch">CHAPAS {pctCh.toFixed(0)}%</span>
-        <span className="df-tag pc">PEDAÇOS {pctPc.toFixed(0)}%</span>
-      </div>}
-    </>)
-  }
-
-  const renderPedido = () => (<div>
-    <div className="sec">
-      <div className="sec-hd"><span className="sec-t">DADOS DO PEDIDO</span></div>
-      <div className="fg">
-        <div className="fi" style={{ gridColumn: 'span 2' }}>
-          <label>CLIENTE</label>
-          <input value={ord.cliente} onChange={e => setO('cliente', e.target.value.toUpperCase())} placeholder="NOME DO CLIENTE" spellCheck={false} autoComplete="off" />
-        </div>
-        <div className="fi"><label>DATA</label><input type="date" value={ord.data} onChange={e => setO('data', e.target.value)} /></div>
-        <div className="fi">
-          <label>TIPO DE PLACA</label>
-          <select value={ord.tipoId} onChange={e => setO('tipoId', e.target.value)}>
-            <option value="">SELECIONAR...</option>
-            {plates.map(p => <option key={p.id} value={p.id}>{p.nome} — {p.c}×{p.l}×{p.e}MM</option>)}
-          </select>
-        </div>
-        <div className="fi"><label>QTD CHAPAS</label><input type="number" min="0" value={ord.qtd} onChange={e => setO('qtd', e.target.value)} placeholder="0" autoComplete="off" /></div>
-        <div className="fi"><label>QTD PEDAÇOS</label><input type="number" min="0" value={ord.pedacos} onChange={e => setO('pedacos', e.target.value)} placeholder="0" autoComplete="off" /></div>
-        <div className="fi"><label>CORTE (MM)</label><input type="number" step="0.01" value={ord.corte} onChange={e => setO('corte', e.target.value)} placeholder="COMPRIMENTO" autoComplete="off" /></div>
-        <div className="fi"><label>DESBASTE (MM)</label><input type="number" step="0.01" value={ord.desb} onChange={e => setO('desb', e.target.value)} placeholder="ESPESSURA FINAL" autoComplete="off" /></div>
-        <div className="fi"><label>LAMINAR (%)</label><input type="number" step="0.01" value={ord.lam} onChange={e => setO('lam', e.target.value)} placeholder="0,00" autoComplete="off" /></div>
-        <div className="fi"><label>MEDIDA FINAL</label><input value={ord.medida} onChange={e => setO('medida', e.target.value.toUpperCase())} placeholder="330 X 1,00" spellCheck={false} autoComplete="off" /></div>
-        <div className="fi"><label>TEMPERA</label><input value={ord.tempera} onChange={e => setO('tempera', e.target.value.toUpperCase())} placeholder="T6" maxLength={5} spellCheck={false} autoComplete="off" /></div>
-      </div>
-    </div>
-    {plateSel && qtd > 0 && <div className="sec">
-      <div className="sec-hd"><span className="sec-t">PESO DAS CHAPAS</span></div>
-      <div className="sg">
-        <div className="sc bl"><div className="v">{pesoChapaUnit.toFixed(3)}</div><div className="l">PESO/CHAPA (KG)</div></div>
-        <div className="sc"><div className="v">{qtd}</div><div className="l">QUANTIDADE</div></div>
-        <div className="sc gn"><div className="v">{pesoTotalChapas.toFixed(2)}</div><div className="l">PESO TOTAL (KG)</div></div>
-      </div>
-      <div className="fbox"><strong>CHAPA:</strong> {plateSel.c}×{plateSel.l}×{plateSel.e}×<span className="hl">{AL_DENSITY}</span>÷1M = <strong className="hl">{pesoChapaUnit.toFixed(3)} KG</strong></div>
-    </div>}
-    {plateSel && nPed > 0 && <div className="sec">
-      <div className="sec-hd"><span className="sec-t">PESO DOS PEDAÇOS</span></div>
-      {(!corteVal || !espPedaco) ? <div className="al al-w">⚠ INFORME CORTE E DESBASTE</div>
-        : <><div className="sg">
-          <div className="sc gn"><div className="v">{pesoPedaco.toFixed(3)}</div><div className="l">PESO/PEDAÇO (KG)</div></div>
-          <div className="sc"><div className="v">{nPed}</div><div className="l">QUANTIDADE</div></div>
-          <div className="sc gn"><div className="v">{pesoTotalPedacos.toFixed(2)}</div><div className="l">PESO TOTAL (KG)</div></div>
-        </div></>}
-    </div>}
-    {plateSel && qtd > 0 && nPed > 0 && corteVal > 0 && espPedaco > 0 && <div className="sec">
-      <div className="sec-hd"><span className="sec-t">COMPARAÇÃO</span></div>
-      {ord.medida && <div className="al al-s" style={{ marginBottom: '1rem' }}>📏 MEDIDA FINAL: <strong>{ord.medida}</strong></div>}
-      <div className="cmp">
-        <div className="cmp-s ch"><div className="cl">CHAPAS ({qtd})</div><div className="cv">{pesoTotalChapas.toFixed(2)} KG</div></div>
-        <div className="cmp-m"><div className="cmp-a">⟷</div><div className="cmp-d">Δ {Math.abs(pesoTotalChapas - pesoTotalPedacos).toFixed(2)} KG</div></div>
-        <div className="cmp-s pc"><div className="cl">PEDAÇOS ({nPed})</div><div className="cv">{pesoTotalPedacos.toFixed(2)} KG</div></div>
-      </div>
-    </div>}
-  </div>)
-
-  const renderOp = (op) => {
-    const f = forms[op], entries = logs[op]
-    return (<div>
-      <div className="sec">
-        <div className="sec-hd"><span className="sec-t">{OP_L[op]}</span><span className="sec-badge">{entries.length} LANÇAMENTOS</span></div>
-        {!currentOsId && <div className="al al-w">⚠ SALVE A OS PRIMEIRO PARA ADICIONAR LANÇAMENTOS</div>}
-        {entries.length === 0 ? <div className="empty">NENHUM LANÇAMENTO</div> : entries.map(e => {
-          const hB = horasDiff(e.i, e.f), hP = e.meal && hB > MEAL_H ? hB - MEAL_H : hB
-          return (<div className={`ec ${e.meal ? 'meal' : ''}`} key={e.id}>
-            <div className="ec-hd">
-              <div className="ec-info">
-                <span>MÁQ: <strong>{e.m}</strong></span>
-                <span>OPER: <strong>{e.op}</strong></span>
-                <span>{e.i}→{e.f}</span>
-                <span className="ec-dur">{fmtH(hP)}</span>
-                {e.meal && <span className="ec-meal">🍽 −1H</span>}
-              </div>
-              <div className="ec-acts">
-                <button className={e.meal ? 'm-on' : ''} onClick={() => togLog(op, e.id)}>🍽</button>
-                <button className="del" onClick={() => delLog(op, e.id)}>✕</button>
-              </div>
+          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'12px',padding:'28px'}}>
+            <div style={{marginBottom:'16px'}}>
+              <label style={{fontSize:'13px',color:'var(--text2)',display:'block',marginBottom:'6px'}}>Usuário</label>
+              <input id="lu" type="text" placeholder="Digite o usuário" onKeyDown={e=>{if(e.key==='Enter')document.getElementById('lp').focus()}}
+                style={{width:'100%',padding:'12px 16px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:'var(--radius)',color:'var(--text)',fontSize:'15px',outline:'none'}}/>
             </div>
-          </div>)
-        })}
-        <div className="af">
-          <div className="fi"><label>MÁQUINA</label><input type="number" value={f.m} onChange={e => setF(op, 'm', e.target.value)} placeholder="001" autoComplete="off" /></div>
-          <div className="fi"><label>OPERADOR</label><input value={f.op} onChange={e => setF(op, 'op', e.target.value.toUpperCase())} placeholder="NOME" spellCheck={false} autoComplete="off" /></div>
-          <div className="fi"><label>INÍCIO</label><input type="time" value={f.i} onChange={e => setF(op, 'i', e.target.value)} /></div>
-          <div className="fi"><label>FIM</label><input type="time" value={f.f} onChange={e => setF(op, 'f', e.target.value)} /></div>
-          <div className="mcb"><input type="checkbox" id={`ml-${op}`} checked={f.meal} onChange={e => setF(op, 'meal', e.target.checked)} /><label htmlFor={`ml-${op}`}>🍽 ALMOÇO (−1H)</label></div>
-          <button className="btn btn-p" onClick={() => addLog(op)}>+ ADICIONAR</button>
-        </div>
-      </div>
-      {renderOeeDuo(op)}
-    </div>)
-  }
-
-  const renderObs = () => {
-    const hasD = OPS.some(op => logs[op].length > 0)
-    return (<div>
-      <div className="sec">
-        <div className="sec-hd"><span className="sec-t">RESUMO DE HORAS</span></div>
-        {!hasD ? <div className="empty">NENHUMA OPERAÇÃO</div> : <>
-          <ul style={{ listStyle: 'none' }}>
-            {OPS.map(op => {
-              const s = opSum[op]; if (!s.n) return null
-              return (<li key={op} style={{ padding: '.5rem 0', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', fontSize: '.78rem' }}>
-                <span style={{ color: 'var(--tx2)' }}>{OP_L[op]}</span>
-                <span style={{ color: 'var(--tx)', fontWeight: 600, fontFamily: 'DM Mono,monospace' }}>{fmtH(s.horas)}</span>
-              </li>)
-            })}
-          </ul>
-          <div style={{ marginTop: '1rem', padding: '.7rem 1rem', background: 'var(--gold-bg)', border: '1px solid rgba(196,163,90,.18)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: '.85rem' }}>
-            <span>TOTAL</span>
-            <span style={{ color: 'var(--gold)', fontFamily: 'DM Mono,monospace' }}>{fmtH(opSum._t.horas)}</span>
-          </div>
-        </>}
-      </div>
-      <div className="sec">
-        <div className="sec-hd"><span className="sec-t">OBSERVAÇÕES</span></div>
-        <textarea value={observacoes} onChange={e => setObservacoes(e.target.value.toUpperCase())}
-          style={{ width: '100%', minHeight: '110px', padding: '.7rem', background: 'var(--sf2)', color: 'var(--tx)', border: '1px solid var(--bd)', borderRadius: '8px', resize: 'vertical', fontFamily: 'Space Grotesk,sans-serif', fontSize: '.82rem', lineHeight: '1.6', textTransform: 'uppercase' }}
-          placeholder="OBSERVAÇÕES..." spellCheck={false} />
-      </div>
-    </div>)
-  }
-
-  const renderHistorico = () => (<div>
-    <div className="sec">
-      <div className="sec-hd"><span className="sec-t">ORDENS DE SERVIÇO</span><span className="sec-badge">{savedOS.length} OS</span></div>
-      {loading ? <div className="empty">CARREGANDO...</div>
-        : savedOS.length === 0 ? <div className="empty">NENHUMA OS SALVA.</div>
-          : <div className="fg" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))' }}>
-            {savedOS.map(os => (
-              <div key={os.id} className={`os-card ${currentOsId === os.id ? 'selected' : ''}`} onClick={() => loadOS(os)}>
-                <div className="os-card-top">
-                  <span className="os-card-num">{os.numero || 'S/N'}</span>
-                  <span className="os-card-date">{os.data}</span>
-                </div>
-                <div className="os-card-client">{os.cliente || '—'}</div>
-                <div className="os-card-stats">
-                  <span>CHAPA: <strong>{os.chapa_nome || '—'}</strong></span>
-                  <span>PESO: <strong>{(os.peso_total_chapas || 0).toFixed(2)} KG</strong></span>
-                </div>
-                <div className="os-card-acts">
-                  <button className="btn btn-s btn-sm" onClick={e => { e.stopPropagation(); loadOS(os) }}>✏️ EDITAR</button>
-                  <button className="btn btn-d btn-sm" onClick={e => { e.stopPropagation(); deleteOS(os.id) }}>🗑 EXCLUIR</button>
-                </div>
-              </div>
-            ))}
-          </div>}
-    </div>
-  </div>)
-
-  const renderComparar = () => {
-    const selectedOS = savedOS.filter(o => compareIds.includes(o.id))
-    return (<div>
-      <div className="sec">
-        <div className="sec-hd"><span className="sec-t">SELECIONAR OS PARA COMPARAR</span><span className="sec-badge">{compareIds.length}/4</span></div>
-        {savedOS.length === 0 ? <div className="empty">SALVE ALGUMAS OS PRIMEIRO.</div>
-          : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(250px,1fr))', gap: '.5rem' }}>
-            {savedOS.map(os => (
-              <div key={os.id} className={`chk-card ${compareIds.includes(os.id) ? 'active' : ''}`} onClick={() => toggleCompare(os.id)}>
-                <input type="checkbox" checked={compareIds.includes(os.id)} readOnly />
-                <div className="chk-info">
-                  <div className="chk-os">{os.numero || 'S/N'} — {os.cliente || '—'}</div>
-                  <div className="chk-detail">{os.data}</div>
-                </div>
-              </div>
-            ))}
-          </div>}
-      </div>
-      {selectedOS.length >= 2 && <div className="sec">
-        <div className="sec-hd"><span className="sec-t">COMPARAÇÃO — {selectedOS.length} OS</span></div>
-        <div className={`compare-grid ${selectedOS.length <= 2 ? 'cols-2' : selectedOS.length === 3 ? 'cols-3' : 'cols-4'}`}>
-          {selectedOS.map(os => (
-            <div key={os.id} className="compare-col">
-              <div className="cc-header">
-                <div><div className="cc-num">{os.numero || 'S/N'}</div><div className="cc-client">{os.cliente || '—'}</div></div>
-              </div>
-              <div className="cc-row"><span className="cc-label">DATA</span><span className="cc-val">{os.data}</span></div>
-              <div className="cc-row"><span className="cc-label">CHAPA</span><span className="cc-val">{os.chapa_nome || '—'}</span></div>
-              <div className="cc-row"><span className="cc-label">QTD</span><span className="cc-val">{os.qtd_chapas || 0}</span></div>
-              <div className="cc-row"><span className="cc-label">PESO CHAPAS</span><span className="cc-val">{(os.peso_total_chapas || 0).toFixed(2)} KG</span></div>
-              <div className="cc-row"><span className="cc-label">PESO PEDAÇOS</span><span className="cc-val">{(os.peso_total_pedacos || 0).toFixed(2)} KG</span></div>
-              <div className="cc-row"><span className="cc-label">MEDIDA</span><span className="cc-val">{os.medida_final || '—'}</span></div>
-              <div className="cc-row"><span className="cc-label">DIFERENÇA</span><span className="cc-val">{Math.abs((os.peso_total_chapas || 0) - (os.peso_total_pedacos || 0)).toFixed(2)} KG</span></div>
+            <div style={{marginBottom:'24px'}}>
+              <label style={{fontSize:'13px',color:'var(--text2)',display:'block',marginBottom:'6px'}}>Senha</label>
+              <input id="lp" type="password" placeholder="Digite a senha" onKeyDown={e=>{if(e.key==='Enter')handleLogin()}}
+                style={{width:'100%',padding:'12px 16px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:'var(--radius)',color:'var(--text)',fontSize:'15px',outline:'none'}}/>
             </div>
-          ))}
+            <button onClick={handleLogin} style={{width:'100%',padding:'12px',background:'var(--red)',color:'#fff',borderRadius:'var(--radius)',fontSize:'15px',fontWeight:'600',transition:'background .2s'}} onMouseOver={e=>e.target.style.background='var(--red-d)'} onMouseOut={e=>e.target.style.background='var(--red)'}>
+              Entrar
+            </button>
+            <p style={{textAlign:'center',marginTop:'16px',fontSize:'12px',color:'var(--text3)'}}>Admin padrão: <b style={{color:'var(--text2)'}}>Admin</b> / <b style={{color:'var(--text2)'}}>321</b></p>
+          </div>
         </div>
-      </div>}
-    </div>)
+      </div>
+    );
   }
 
-  const renderRanking = () => {
-    const rankedCh = [...rankingData].sort((a, b) => b.lamCh - a.lamCh)
-    const rankedPc = [...rankingData].sort((a, b) => b.lamPc - a.lamPc)
-    const maxCh = rankedCh[0]?.lamCh || 1
-    const maxPc = rankedPc[0]?.lamPc || 1
-    const getPosClass = i => i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : ''
-    const getValClass = (v, max) => v / max > .7 ? 'high' : v / max > .4 ? 'mid' : 'low'
-    const getBarColor = i => i === 0 ? 'var(--gold)' : i === 1 ? 'var(--accent)' : i === 2 ? 'var(--accent2)' : 'var(--tx4)'
-    return (<div>
-      {rankingData.length === 0 ? <div className="sec"><div className="empty">NENHUMA OS COM DADOS DE LAMINAR.</div></div>
-        : <>
-          <div className="sec">
-            <div className="sec-hd"><span className="sec-t">RANKING LAMINAR — OEE CHAPAS (KG/H)</span><span className="sec-badge">{rankedCh.length} OS</span></div>
-            {rankedCh.map((os, i) => (<div key={os.id + 'ch'} className="rank-item">
-              <div className={`rank-pos ${getPosClass(i)}`}>{i + 1}º</div>
-              <div className="rank-info"><div className="rank-os">{os.numero || 'S/N'} — {os.cliente || '—'}</div><div className="rank-client">{os.data} · {os.chapa_nome || '—'}</div></div>
-              <div className="rank-bar-wrap"><div className="rank-bar" style={{ width: `${os.lamCh / maxCh * 100}%`, background: getBarColor(i) }}></div></div>
-              <div className={`rank-val ${getValClass(os.lamCh, maxCh)}`}>{fmtKgH(os.lamCh)}</div>
-            </div>))}
-          </div>
-          <div className="sec">
-            <div className="sec-hd"><span className="sec-t">RANKING LAMINAR — OEE PEDAÇOS (KG/H)</span><span className="sec-badge">{rankedPc.length} OS</span></div>
-            {rankedPc.map((os, i) => (<div key={os.id + 'pc'} className="rank-item">
-              <div className={`rank-pos ${getPosClass(i)}`}>{i + 1}º</div>
-              <div className="rank-info"><div className="rank-os">{os.numero || 'S/N'} — {os.cliente || '—'}</div><div className="rank-client">{os.data} · {os.chapa_nome || '—'}</div></div>
-              <div className="rank-bar-wrap"><div className="rank-bar" style={{ width: `${os.lamPc / maxPc * 100}%`, background: getBarColor(i) }}></div></div>
-              <div className={`rank-val ${getValClass(os.lamPc, maxPc)}`}>{fmtKgH(os.lamPc)}</div>
-            </div>))}
-          </div>
-        </>}
-    </div>)
+  async function handleLogin(){
+    const u=document.getElementById('lu').value;
+    const p=document.getElementById('lp').value;
+    await login(u,p);
   }
 
-  const renderCadastro = () => (<div>
-    <div className="sec">
-      <div className="sec-hd"><span className="sec-t">TIPOS DE CHAPA</span><button className="btn btn-p btn-sm" onClick={() => setShowModal(true)}>+ NOVA</button></div>
-      <table className="rt">
-        <thead><tr><th>NOME</th><th>COMP.</th><th>LARG.</th><th>ESP.</th><th>PESO/UN</th><th></th></tr></thead>
-        <tbody>{plates.map(p => (<tr key={p.id}>
-          <td><strong>{p.nome}</strong></td><td>{p.c}MM</td><td>{p.l}MM</td><td>{p.e}MM</td>
-          <td style={{ color: 'var(--accent)', fontWeight: 600 }}>{calcPeso(p.c, p.l, p.e).toFixed(3)} KG</td>
-          <td><button className="btn btn-d btn-sm" onClick={() => delPlate(p.id)}>✕</button></td>
-        </tr>))}</tbody>
-      </table>
+  // ========== MAIN ==========
+  const tabs=[
+    {id:'dashboard',icon:'◈',label:'Dashboard'},
+    {id:'cadastro',icon:'＋',label:'Apontar'},
+    {id:'historico',icon:'☰',label:'Histórico'},
+    {id:'comparacao',icon:'↕',label:'Comparação'},
+    {id:'ocorrencias',icon:'⚠',label:'Ocorrências'},
+    ...(isAdmin?[{id:'usuarios',icon:'⚇',label:'Usuários'}]:[]),
+    {id:'configuracoes',icon:'⚙',label:'Configurações'}
+  ];
+
+  const todayStats=useMemo(()=>{
+    const td=fmtDateISO(new Date());
+    const tdData=data.filter(x=>x.data?.startsWith(td));
+    const q=tdData.reduce((s,x)=>s+x.quantidade,0);
+    const kg=tdData.reduce((s,x)=>{const pt=partById(x.peca_id);return s+x.quantidade*(pt?.peso_kg||0)},0);
+    const h=tdData.reduce((s,x)=>s+(x.tempo_segundos||0),0)/3600;
+    return{q,kg,kgHr:h>0?kg/h:0,h,entries:tdData.length}
+  },[data,parts]);
+
+  const histFiltered=useMemo(()=>{
+    return data.filter(x=>{
+      if(fDateStart){const d=fmtDateISO(x.data);if(d<fDateStart)return false}
+      if(fDateEnd){const d=fmtDateISO(x.data);if(d>fDateEnd)return false}
+      if(fMachine&&x.maquina!==fMachine)return false;
+      if(fSearch){const s=fSearch.toLowerCase();if(!x.operador?.toLowerCase().includes(s)&&!x.maquina?.toLowerCase().includes(s)&&!x.peca_nome?.toLowerCase().includes(s))return false}
+      return true;
+    });
+  },[data,fDateStart,fDateEnd,fMachine,fSearch]);
+
+  const occFiltered=useMemo(()=>{
+    return ocorrencias.filter(x=>{
+      if(fDateStart){const d=fmtDateISO(x.data);if(d<fDateStart)return false}
+      if(fDateEnd){const d=fmtDateISO(x.data);if(d>fDateEnd)return false}
+      if(fMachine&&x.maquina!==fMachine)return false;
+      return true;
+    });
+  },[ocorrencias,fDateStart,fDateEnd,fMachine]);
+
+  // ---- DASHBOARD ----
+  const DashboardView=()=>(
+    <div style={{animation:'fadeUp .4s ease'}}>
+      <div style={{marginBottom:'28px'}}>
+        <h2 style={{fontSize:'22px',fontWeight:'700',marginBottom:'4px'}}>Olá, {user?.nome||'Usuário'} 👋</h2>
+        <p style={{color:'var(--text3)',fontSize:'14px'}}>{new Date().toLocaleDateString('pt-BR',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'16px',marginBottom:'28px'}}>
+        <StatCard label="Produção Hoje" value={todayStats.q} sub={`${fmtKg(todayStats.kg)} produzidos`} icon="◉" color="var(--red)"/>
+        <StatCard label="Eficiência Hoje" value={todayStats.kgHr.toFixed(1)} sub="kg/hora" icon="↕" color="var(--green)"/>
+        <StatCard label="Tempo Hoje" value={todayStats.h.toFixed(1)+'h'} sub={`${todayStats.entries} apontamentos`} icon="◷" color="var(--amber)"/>
+        <StatCard label="Média Ciclo" value={stats.avgTime.toFixed(1)+'s'} sub="por peça" icon="⟳" color="#8b5cf6"/>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'16px'}}>
+        <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'12px',padding:'20px'}}>
+          <h3 style={{fontSize:'14px',fontWeight:'600',marginBottom:'16px',color:'var(--text2)'}}>Eficiência por Máquina (kg/h)</h3>
+          {mComp.length?mComp.map(m=>(
+            <div key={m[0]} style={{marginBottom:'12px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:'13px',marginBottom:'4px'}}>
+                <span>{m[0]}</span>
+                <span style={{fontFamily:'var(--mono)',fontWeight:'600'}}>{m.kgHr.toFixed(1)} kg/h</span>
+              </div>
+              <div style={{height:'6px',background:'var(--surface3)',borderRadius:'3px',overflow:'hidden'}}>
+                <div style={{height:'100%',width:Math.min(m.pct,150)+'%',background:m.pct>=100?'var(--green)':m.pct>=80?'var(--amber)':'var(--red)',borderRadius:'3px',transition:'width .5s ease'}}/>
+              </div>
+              <div style={{fontSize:'11px',color:'var(--text3)',marginTop:'2px'}}>{m.pct}% da média</div>
+            </div>
+          )):<p style={{color:'var(--text3)',fontSize:'13px',textAlign:'center',padding:'24px 0'}}>Sem dados suficientes</p>}
+        </div>
+        <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'12px',padding:'20px'}}>
+          <h3 style={{fontSize:'14px',fontWeight:'600',marginBottom:'16px',color:'var(--text2)'}}>Eficiência por Operador (kg/h)</h3>
+          {oComp.length?oComp.map(o=>(
+            <div key={o[0]} style={{marginBottom:'12px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:'13px',marginBottom:'4px'}}>
+                <span>{o[0]}</span>
+                <span style={{fontFamily:'var(--mono)',fontWeight:'600'}}>{o.kgHr.toFixed(1)} kg/h</span>
+              </div>
+              <div style={{height:'6px',background:'var(--surface3)',borderRadius:'3px',overflow:'hidden'}}>
+                <div style={{height:'100%',width:Math.min(o.pct,150)+'%',background:o.pct>=100?'var(--green)':o.pct>=80?'var(--amber)':'var(--red)',borderRadius:'3px',transition:'width .5s ease'}}/>
+              </div>
+              <div style={{fontSize:'11px',color:'var(--text3)',marginTop:'2px'}}>{o.pct}% da média</div>
+            </div>
+          )):<p style={{color:'var(--text3)',fontSize:'13px',textAlign:'center',padding:'24px 0'}}>Sem dados suficientes</p>}
+        </div>
+      </div>
     </div>
-    {showModal && <div className="mo" onClick={() => setShowModal(false)}>
-      <div className="md" onClick={e => e.stopPropagation()}>
-        <div className="md-h"><h3>Nova Chapa</h3><button style={{ background: 'none', color: 'var(--tx3)', fontSize: '1.1rem', border: 'none' }} onClick={() => setShowModal(false)}>✕</button></div>
-        <div className="md-b">
-          <div className="fi" style={{ marginBottom: '1rem' }}><label>NOME</label><input value={newPlate.nome} onChange={e => setNewPlate(p => ({ ...p, nome: e.target.value.toUpperCase() }))} placeholder="CHAPA 450" spellCheck={false} autoComplete="off" /></div>
-          <div className="fg" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
-            <div className="fi"><label>COMP. (MM)</label><input type="number" value={newPlate.c} onChange={e => setNewPlate(p => ({ ...p, c: e.target.value }))} placeholder="250" autoComplete="off" /></div>
-            <div className="fi"><label>LARG. (MM)</label><input type="number" value={newPlate.l} onChange={e => setNewPlate(p => ({ ...p, l: e.target.value }))} placeholder="800" autoComplete="off" /></div>
-            <div className="fi"><label>ESP. (MM)</label><input type="number" step="0.01" value={newPlate.e} onChange={e => setNewPlate(p => ({ ...p, e: e.target.value }))} placeholder="9.20" autoComplete="off" /></div>
-          </div>
-          {newPlate.c && newPlate.l && newPlate.e && <div className="al al-s" style={{ marginTop: '1rem' }}>✓ <strong>{calcPeso(Number(newPlate.c), Number(newPlate.l), Number(newPlate.e)).toFixed(3)} KG/CHAPA</strong></div>}
-        </div>
-        <div className="md-f"><button className="btn btn-s" onClick={() => setShowModal(false)}>CANCELAR</button><button className="btn btn-p" onClick={addPlate}>CADASTRAR</button></div>
-      </div>
-    </div>}
-  </div>)
+  );
 
-  // ═══ MAIN RENDER ═══
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#131210', color: '#8b9dc3', fontFamily: 'Space Grotesk, sans-serif', flexDirection: 'column', gap: '1rem' }}>
-        <div style={{ fontSize: '2rem', animation: 'pulse 1.5s infinite' }}>⏳</div>
-        <div>CONECTANDO AO BANCO DE DADOS...</div>
-        <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }`}</style>
+  function StatCard({label,value,sub,icon,color}){
+    return(
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'12px',padding:'20px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'12px'}}>
+          <span style={{fontSize:'13px',color:'var(--text3)',fontWeight:'500'}}>{label}</span>
+          <span style={{fontSize:'18px',opacity:.6}}>{icon}</span>
+        </div>
+        <div style={{fontSize:'28px',fontWeight:'700',fontFamily:'var(--mono)',lineHeight:1,color}}>{value}</div>
+        <div style={{fontSize:'12px',color:'var(--text3)',marginTop:'4px'}}>{sub}</div>
       </div>
-    )
+    );
   }
 
-  return (
-    <div className="app">
-      <style dangerouslySetInnerHTML={{ __html: STYLES }} />
-      <div className="hdr">
-        <div className="hdr-l">
-          <div className="logo"><span>A</span></div>
-          <div className="hdr-text">
-            <h1>Apontamento de Produção</h1>
-            <div className="sub">SISTEMA INDUSTRIAL — CONTROLE DE ALUMÍNIO</div>
+  // ---- APONTAMENTO ----
+  const CadastroView=()=>(
+    <div style={{maxWidth:'800px',animation:'fadeUp .4s ease'}}>
+      <h2 style={{fontSize:'22px',fontWeight:'700',marginBottom:'24px'}}>Novo Apontamento</h2>
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'12px',padding:'24px'}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'16px',marginBottom:'16px'}}>
+          <FG label="Máquina"><SV value={formM} onChange={setFormM} options={machines} ph="Selecione"/></FG>
+          <FG label="Peça"><SV value={formP} onChange={setFormP} options={parts.filter(x=>x.ativa!==false).map(x=>({value:x.id,label:`${x.nome} (${x.codigo}) - ${x.peso_kg}kg`}))} ph="Selecione"/></FG>
+          <FG label="Operador" full><input value={formO} onChange={e=>setFormO(e.target.value)} placeholder="Nome do operador" style={iStyle}/></FG>
+        </div>
+        {formP&&(
+          <div style={{background:'var(--surface2)',borderRadius:'var(--radius)',padding:'12px 16px',marginBottom:'16px',fontSize:'13px',color:'var(--text2)',display:'flex',gap:'24px'}}>
+            <span>Peça: <b style={{color:'var(--text)'}}>{partById(formP)?.nome}</b></span>
+            <span>Peso: <b style={{color:'var(--text)'}}>{partById(formP)?.peso_kg}kg</b></span>
+            <span>Categoria: <b style={{color:'var(--text)'}}>{partById(formP)?.categoria}</b></span>
+          </div>
+        )}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'16px',marginBottom:'16px'}}>
+          <FG label="Quantidade"><input type="number" value={formQ} onChange={e=>setFormQ(e.target.value)} min="1" style={iStyle}/></FG>
+          <FG label="Início"><input type="time" value={formS} onChange={e=>setFormS(e.target.value)} style={iStyle}/></FG>
+          <FG label="Fim"><input type="time" value={formE} onChange={e=>setFormE(e.target.value)} style={iStyle}/></FG>
+        </div>
+        {formS&&formE&&formP&&(
+          <div style={{background:'var(--red)',background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.2)',borderRadius:'var(--radius)',padding:'12px 16px',marginBottom:'16px',display:'flex',gap:'32px',fontSize:'14px'}}>
+            {(()=>{const[sh,sm]=formS.split(':').map(Number);const[eh,em]=formE.split(':').map(Number);let s=(eh*60+em)-(sh*60+sm);if(s<=0)s+=1440;const h=s/3600;const q=parseInt(formQ)||1;const pt=partById(formP);const kg=q*(pt?.peso_kg||0);
+              return(<><span>Tempo: <b style={{color:'var(--text)',fontFamily:'var(--mono)'}}>{(s/60).toFixed(0)} min</b></span><span>Produção: <b style={{color:'var(--text)',fontFamily:'var(--mono)'}}>{kg.toFixed(1)} kg</b></span><span>Velocidade: <b style={{color:'var(--green)',fontFamily:'var(--mono)'}}>{(h>0?kg/h:0).toFixed(1)} kg/h</b></span></>)})()}
+          </div>
+        )}
+        <FG label="Observações"><textarea value={formObs} onChange={e=>setFormObs(e.target.value)} rows={2} placeholder="Opcional" style={{...iStyle,resize:'vertical'}}/></FG>
+        <div style={{display:'flex',gap:'12px',marginTop:'20px'}}>
+          <button onClick={addEntry} style={{flex:1,padding:'14px',background:'var(--red)',color:'#fff',borderRadius:'var(--radius)',fontSize:'15px',fontWeight:'600',transition:'background .2s'}}>Registrar Apontamento</button>
+          <button onClick={()=>{setFormM('');setFormP('');setFormQ('100');setFormS('');setFormE('');setFormObs('')}} style={{padding:'14px 20px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:'14px'}}>Limpar</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ---- HISTÓRICO ----
+  const HistoricoView=()=>(
+    <div style={{animation:'fadeUp .4s ease'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',flexWrap:'wrap',gap:'12px'}}>
+        <h2 style={{fontSize:'22px',fontWeight:'700'}}>Histórico</h2>
+        <div style={{display:'flex',gap:'8px'}}>
+          <button onClick={exportExcel} style={{padding:'8px 16px',background:'var(--amber)',color:'#000',borderRadius:'var(--radius)',fontSize:'13px',fontWeight:'600'}}>📊 Excel</button>
+          <button onClick={exportPDF} style={{padding:'8px 16px',background:'#ef4444',color:'#fff',borderRadius:'var(--radius)',fontSize:'13px',fontWeight:'600'}}>📄 PDF</button>
+          <button onClick={printView} style={{padding:'8px 16px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:'13px'}}>🖨️ Imprimir</button>
+        </div>
+      </div>
+      <div style={{display:'flex',gap:'12px',marginBottom:'16px',flexWrap:'wrap'}}>
+        <input type="date" value={fDateStart} onChange={e=>setFDateStart(e.target.value)} style={{...iStyle,width:'150px'}}/>
+        <input type="date" value={fDateEnd} onChange={e=>setFDateEnd(e.target.value)} style={{...iStyle,width:'150px'}}/>
+        <select value={fMachine} onChange={e=>setFMachine(e.target.value)} style={{...iStyle,width:'160px'}}><option value="">Todas máquinas</option>{machines.map(m=><option key={m} value={m}>{m}</option>)}</select>
+        <input value={fSearch} onChange={e=>setFSearch(e.target.value)} placeholder="Buscar..." style={{...iStyle,flex:'1',minWidth:'150px'}}/>
+        <button onClick={()=>{setFDateStart('');setFDateEnd('');setFMachine('');setFSearch('');setHLimit(50)}} style={{padding:'8px 16px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:'13px'}}>Limpar</button>
+      </div>
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'12px',overflow:'hidden'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:'13px'}}>
+          <thead><tr style={{borderBottom:'1px solid var(--border)'}}>
+            {['Data','Operador','Máquina','Peça','Qtd','Kg','Tempo','Kg/h','Ações'].map(h=><th key={h} style={{padding:'12px 16px',textAlign:h==='Ações'?'right':'left',color:'var(--text3)',fontWeight:'500',fontSize:'12px',textTransform:'uppercase',letterSpacing:'.5px'}}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {histFiltered.slice(0,hLimit).map((a,i)=>{
+              const pt=partById(a.peca_id);const kg=a.quantidade*(pt?.peso_kg||0);const h=(a.tempo_segundos||0)/3600;
+              return(<tr key={a.id} style={{borderBottom:'1px solid var(--border)',background:i%2?'transparent':'rgba(255,255,255,.02)'}}>
+                <td style={{padding:'10px 16px'}}>{fmtDate(a.data)}</td>
+                <td style={{padding:'10px 16px'}}>{a.operador}</td>
+                <td style={{padding:'10px 16px'}}>{a.maquina}</td>
+                <td style={{padding:'10px 16px'}}>{a.peca_nome}</td>
+                <td style={{padding:'10px 16px',fontFamily:'var(--mono)',textAlign:'right'}}>{a.quantidade}</td>
+                <td style={{padding:'10px 16px',fontFamily:'var(--mono)',textAlign:'right'}}>{kg.toFixed(1)}</td>
+                <td style={{padding:'10px 16px',fontFamily:'var(--mono)',textAlign:'right'}}>{h.toFixed(1)}h</td>
+                <td style={{padding:'10px 16px',fontFamily:'var(--mono)',textAlign:'right',fontWeight:'600',color:h>0&&kg/h>30?'var(--green)':'var(--text2)'}}>{(h>0?kg/h:0).toFixed(1)}</td>
+                <td style={{padding:'10px 16px',textAlign:'right'}}><button onClick={()=>setShowDel(a.id)} style={{color:'var(--text3)',fontSize:'16px',padding:'4px 8px',borderRadius:'4px',transition:'all .2s'}} onMouseOver={e=>{e.target.style.color='var(--red)';e.target.style.background='rgba(239,68,68,.1)'}} onMouseOut={e=>{e.target.style.color='var(--text3)';e.target.style.background='transparent'}}>×</button></td>
+              </tr>)})}
+          </tbody>
+        </table>
+        {!histFiltered.length&&<div style={{padding:'40px',textAlign:'center',color:'var(--text3)'}}>Nenhum registro encontrado</div>}
+        {histFiltered.length>hLimit&&<div style={{padding:'12px',textAlign:'center'}}><button onClick={()=>setHLimit(l=>l+50)} style={{padding:'8px 24px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:'13px'}}>Carregar mais ({histFiltered.length-hLimit} restantes)</button></div>}
+      </div>
+    </div>
+  );
+
+  // ---- COMPARAÇÃO ----
+  const ComparacaoView=()=>(
+    <div style={{animation:'fadeUp .4s ease'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',flexWrap:'wrap',gap:'12px'}}>
+        <h2 style={{fontSize:'22px',fontWeight:'700'}}>Comparação</h2>
+        <div style={{display:'flex',gap:'8px'}}>
+          <button onClick={exportExcel} style={{padding:'8px 16px',background:'var(--amber)',color:'#000',borderRadius:'var(--radius)',fontSize:'13px',fontWeight:'600'}}>📊 Excel</button>
+          <button onClick={exportPDF} style={{padding:'8px 16px',background:'#ef4444',color:'#fff',borderRadius:'var(--radius)',fontSize:'13px',fontWeight:'600'}}>📄 PDF</button>
+          <button onClick={printView} style={{padding:'8px 16px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:'13px'}}>🖨️ Imprimir</button>
+        </div>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'20px'}}>
+        <CompBlock title="Por Máquina" items={mComp}/>
+        <CompBlock title="Por Operador" items={oComp}/>
+      </div>
+    </div>
+  );
+
+  function CompBlock({title,items}){
+    return(
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'12px',padding:'20px'}}>
+        <h3 style={{fontSize:'15px',fontWeight:'600',marginBottom:'16px'}}>{title}</h3>
+        {!items.length&&<p style={{color:'var(--text3)',fontSize:'13px',textAlign:'center',padding:'32px 0'}}>Sem dados</p>}
+        {items.map((it,i)=>(
+          <div key={it[0]||i} style={{marginBottom:'16px',padding:'12px',background:'var(--surface2)',borderRadius:'var(--radius)'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+              <div><span style={{fontSize:'14px',fontWeight:'600'}}>{it[0]}</span><span style={{fontSize:'12px',color:'var(--text3)',marginLeft:'8px'}}>({it.q} peças, {fmtKg(it.kg)})</span></div>
+              <div style={{textAlign:'right'}}><span style={{fontFamily:'var(--mono)',fontSize:'16px',fontWeight:'700',color:it.pct>=100?'var(--green)':it.pct>=80?'var(--amber)':'var(--red)'}}>{it.kgHr.toFixed(1)}</span><span style={{fontSize:'12px',color:'var(--text3)',marginLeft:'4px'}}>kg/h</span></div>
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
+              <div style={{flex:1,height:'8px',background:'var(--surface3)',borderRadius:'4px',overflow:'hidden'}}>
+                <div style={{height:'100%',width:Math.min(it.pct,150)+'%',background:it.pct>=100?'var(--green)':it.pct>=80?'var(--amber)':'var(--red)',borderRadius:'4px',transition:'width .6s ease'}}/>
+              </div>
+              <span style={{fontFamily:'var(--mono)',fontSize:'13px',fontWeight:'600',color:it.pct>=100?'var(--green)':it.pct>=80?'var(--amber)':'var(--red)',minWidth:'50px',textAlign:'right'}}>{it.pct}%</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // ---- OCORRÊNCIAS ----
+  const OcorrenciasView=()=>(
+    <div style={{animation:'fadeUp .4s ease'}}>
+      <h2 style={{fontSize:'22px',fontWeight:'700',marginBottom:'24px'}}>Ocorrências</h2>
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'12px',padding:'20px',marginBottom:'20px'}}>
+        <h3 style={{fontSize:'15px',fontWeight:'600',marginBottom:'16px'}}>Nova Ocorrência</h3>
+        <div style={{display:'flex',flexWrap:'wrap',gap:'8px',marginBottom:'16px'}}>
+          {OCC_TYPES.map(t=>(<button key={t} onClick={()=>setOccT(t)} style={{padding:'6px 14px',borderRadius:'20px',fontSize:'12px',fontWeight:'500',border:'1px solid '+(occT===t?'var(--red)':'var(--border)'),background:occT===t?'var(--red)':'transparent',color:occT===t?'#fff':'var(--text2)',transition:'all .2s'}}>{t}</button>))}
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'12px'}}>
+          <FG label="Máquina"><SV value={occM} onChange={setOccM} options={machines} ph="Selecione"/></FG>
+          <FG label="Peça (opcional)"><input value={occP} onChange={e=>setOccP(e.target.value)} placeholder="Nome da peça" style={iStyle}/></FG>
+        </div>
+        <FG label="Descrição"><textarea value={occDesc} onChange={e=>setOccDesc(e.target.value)} rows={2} placeholder="Detalhes..." style={{...iStyle,resize:'vertical'}}/></FG>
+        <button onClick={addOcc} style={{marginTop:'12px',padding:'10px 24px',background:'var(--amber)',color:'#000',borderRadius:'var(--radius)',fontSize:'14px',fontWeight:'600'}}>Registrar Ocorrência</button>
+      </div>
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'12px',overflow:'hidden'}}>
+        <div style={{padding:'16px 20px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <h3 style={{fontSize:'15px',fontWeight:'600'}}>Registro</h3>
+          <span style={{fontSize:'12px',color:'var(--text3)'}}>{occFiltered.length} ocorrências</span>
+        </div>
+        {occFiltered.slice(0,occLim).map(o=>(
+          <div key={o.id} style={{padding:'14px 20px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <div>
+              <div style={{fontSize:'13px',fontWeight:'500'}}><span style={{color:'var(--amber)'}}>{o.tipo}</span><span style={{color:'var(--text3)',margin:'0 8px'}}>•</span>{o.maquina}</div>
+              {o.descricao&&<div style={{fontSize:'12px',color:'var(--text2)',marginTop:'4px'}}>{o.descricao}</div>}
+              <div style={{fontSize:'11px',color:'var(--text3)',marginTop:'4px'}}>{fmtDate(o.data)} {o.hora} • {o.operador}</div>
+            </div>
+            <button onClick={()=>delOcc(o.id)} style={{color:'var(--text3)',fontSize:'16px',padding:'4px 8px'}}>×</button>
+          </div>
+        ))}
+        {!occFiltered.length&&<div style={{padding:'40px',textAlign:'center',color:'var(--text3)'}}>Nenhuma ocorrência</div>}
+        {occFiltered.length>occLim&&<div style={{padding:'12px',textAlign:'center'}}><button onClick={()=>setOccLim(l=>l+50)} style={{padding:'8px 24px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:'13px'}}>Carregar mais</button></div>}
+      </div>
+    </div>
+  );
+
+  // ---- USUÁRIOS (ADMIN) ----
+  const UsuariosView=()=>(
+    <div style={{animation:'fadeUp .4s ease'}}>
+      <h2 style={{fontSize:'22px',fontWeight:'700',marginBottom:'24px'}}>Gerenciar Usuários</h2>
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'12px',overflow:'hidden',marginBottom:'20px'}}>
+        {users.map(u=>(
+          <div key={u.id} style={{padding:'16px 20px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center',opacity:u.ativo?1:.4}}>
+            <div>
+              <div style={{fontSize:'14px',fontWeight:'500'}}>{u.nome} <span style={{fontSize:'12px',color:'var(--text3)',marginLeft:'4px'}}>({u.username})</span></div>
+              <span style={{fontSize:'11px',padding:'2px 8px',borderRadius:'10px',background:u.perfil==='admin'?'rgba(239,68,68,.15)':'rgba(161,161,170,.15)',color:u.perfil==='admin'?'var(--red)':'var(--text2)'}}>{u.perfil}</span>
+            </div>
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={()=>togUser(u.id,u.ativo)} style={{padding:'6px 14px',background:u.ativo?'rgba(239,68,68,.1)':'rgba(34,197,94,.1)',border:'1px solid '+(u.ativo?'rgba(239,68,68,.3)':'rgba(34,197,94,.3)'),borderRadius:'var(--radius)',fontSize:'12px',color:u.ativo?'var(--red)':'var(--green)'}}>{u.ativo?'Desativar':'Ativar'}</button>
+              <button onClick={()=>rstPwd(u.id)} style={{padding:'6px 14px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:'12px',color:'var(--text2)'}}>Resetar Senha</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'12px',padding:'20px'}}>
+        <h3 style={{fontSize:'15px',fontWeight:'600',marginBottom:'16px'}}>Novo Usuário</h3>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'12px',marginBottom:'12px'}}>
+          <FG label="Usuário"><input value={newU} onChange={e=>setNewU(e.target.value)} placeholder="Login" style={iStyle}/></FG>
+          <FG label="Senha"><input type="password" value={newP} onChange={e=>setNewP(e.target.value)} placeholder="Senha" style={iStyle}/></FG>
+          <FG label="Nome"><input value={newN} onChange={e=>setNewN(e.target.value)} placeholder="Nome completo" style={iStyle}/></FG>
+        </div>
+        <button onClick={addUser} style={{padding:'10px 24px',background:'var(--red)',color:'#fff',borderRadius:'var(--radius)',fontSize:'14px',fontWeight:'600'}}>Criar Usuário</button>
+      </div>
+    </div>
+  );
+
+  // ---- CONFIGURAÇÕES ----
+  const ConfigView=()=>(
+    <div style={{animation:'fadeUp .4s ease'}}>
+      <h2 style={{fontSize:'22px',fontWeight:'700',marginBottom:'24px'}}>Configurações</h2>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'20px'}}>
+        <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'12px',padding:'20px'}}>
+          <h3 style={{fontSize:'15px',fontWeight:'600',marginBottom:'16px'}}>Aparência</h3>
+          <div style={{marginBottom:'16px'}}>
+            <label style={{fontSize:'13px',color:'var(--text2)',display:'block',marginBottom:'8px'}}>Tema</label>
+            <div style={{display:'flex',gap:'8px'}}>
+              {[{v:'dark',l:'Escuro',c:'#09090b'},{v:'darker',l:'Preto',c:'#000'}].map(t=>(
+                <button key={t.v} onClick={()=>updateSettings({...settings,theme:t.v})} style={{padding:'10px 20px',borderRadius:'var(--radius)',fontSize:'13px',border:'2px solid '+(settings.theme===t.v?'var(--red)':'var(--border)'),background:t.c,color:'var(--text)',transition:'all .2s'}}>{t.l}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{marginBottom:'12px'}}>
+            <label style={{fontSize:'13px',color:'var(--text2)',display:'flex',alignItems:'center',gap:'8px',cursor:'pointer'}}>
+              <input type="checkbox" checked={settings.showCharts!==false} onChange={e=>updateSettings({...settings,showCharts:e.target.checked})}/> Mostrar gráficos
+            </label>
+          </div>
+          <div>
+            <label style={{fontSize:'13px',color:'var(--text2)',display:'flex',alignItems:'center',gap:'8px',cursor:'pointer'}}>
+              <input type="checkbox" checked={settings.grain!==false} onChange={e=>updateSettings({...settings,grain:e.target.checked})}/> Textura de fundo
+            </label>
           </div>
         </div>
-        <div className="hdr-r"><div className="ver">v4.0 SUPABASE</div></div>
+        <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'12px',padding:'20px'}}>
+          <h3 style={{fontSize:'15px',fontWeight:'600',marginBottom:'16px'}}>Máquinas</h3>
+          <div style={{marginBottom:'12px'}}>
+            {machines.map(m=>(<div key={m} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 12px',background:'var(--surface2)',borderRadius:'var(--radius)',marginBottom:'4px',fontSize:'13px'}}><span>{m}</span><button onClick={()=>delMachine(m)} style={{color:'var(--text3)',fontSize:'14px'}}>×</button></div>))}
+          </div>
+          <div style={{display:'flex',gap:'8px'}}>
+            <input value={newMN} onChange={e=>setNewMN(e.target.value)} placeholder="Nova máquina" onKeyDown={e=>e.key==='Enter'&&addMachine()} style={{...iStyle,flex:1}}/>
+            <button onClick={addMachine} style={{padding:'8px 16px',background:'var(--red)',color:'#fff',borderRadius:'var(--radius)',fontSize:'13px'}}>+</button>
+          </div>
+        </div>
       </div>
-
-      <OsBar osNum={osNum} osStatus={osStatus} onOsNumChange={handleOsNumChange} onSave={handleSaveOS} onNew={handleNewOS} />
-
-      <div className="nav">
-        {TABS.map(t => (<button key={t.k} className={tab === t.k ? 'on' : ''} onClick={() => setTab(t.k)}>{t.l}</button>))}
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'12px',padding:'20px',marginTop:'20px'}}>
+        <h3 style={{fontSize:'15px',fontWeight:'600',marginBottom:'16px'}}>Peças Cadastradas</h3>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:'13px',marginBottom:'12px'}}>
+          <thead><tr style={{borderBottom:'1px solid var(--border)'}}>
+            {['Código','Nome','Categoria','Peso (kg)',''].map(h=><th key={h} style={{padding:'8px 12px',textAlign:'left',color:'var(--text3)',fontWeight:'500',fontSize:'11px',textTransform:'uppercase'}}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {parts.map(p=>(<tr key={p.id} style={{borderBottom:'1px solid var(--border)'}}>
+              <td style={{padding:'8px 12px',fontFamily:'var(--mono)',fontSize:'12px'}}>{p.codigo}</td>
+              <td style={{padding:'8px 12px'}}>{p.nome}</td>
+              <td style={{padding:'8px 12px'}}>{p.categoria}</td>
+              <td style={{padding:'8px 12px',fontFamily:'var(--mono)'}}>{p.peso_kg}</td>
+              <td style={{padding:'8px 12px',textAlign:'right'}}><button onClick={()=>delPart(p.id)} style={{color:'var(--text3)',fontSize:'14px'}}>×</button></td>
+            </tr>))}
+          </tbody>
+        </table>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 2fr 1fr 100px auto',gap:'8px',alignItems:'end'}}>
+          <FG label="Código"><input value={newPCod} onChange={e=>setNewPCod(e.target.value)} placeholder="CAS-002" style={iStyle}/></FG>
+          <FG label="Nome"><input value={newPCat} onChange={e=>setNewPCat(e.target.value)} placeholder="Nome da peça" style={iStyle}/></FG>
+          <FG label="Categoria"><SV value="" onChange={()=>{}} options={machines} ph="Cat." style={{fontSize:'13px'}}/></FG>
+          <FG label="Peso (kg)"><input type="number" step="0.01" value={newPPeso} onChange={e=>setNewPPeso(e.target.value)} style={iStyle}/></FG>
+          <button onClick={addPart} style={{padding:'10px 20px',background:'var(--red)',color:'#fff',borderRadius:'var(--radius)',fontSize:'13px',height:'42px'}}>Adicionar</button>
+        </div>
       </div>
-
-      <div>
-        {tab === 'pedido' && renderPedido()}
-        {tab === 'desbaste' && renderOp('desbaste')}
-        {tab === 'corte' && renderOp('corte')}
-        {tab === 'laminar' && renderOp('laminar')}
-        {tab === 'expedicao' && renderOp('expedicao')}
-        {tab === 'obs' && renderObs()}
-        {tab === 'historico' && renderHistorico()}
-        {tab === 'comparar' && renderComparar()}
-        {tab === 'ranking' && renderRanking()}
-        {tab === 'cadastro' && renderCadastro()}
-      </div>
-
-      <ThemePanel currentTheme={currentTheme} showPanel={showThemePanel} onToggle={setShowThemePanel} onSelect={setCurrentTheme} />
     </div>
-  )
+  );
+
+  // ---- CONFIRM DELETE MODAL ----
+  const DelModal=()=>showDel&&(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100}} onClick={()=>setShowDel(null)}>
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'12px',padding:'24px',maxWidth:'400px',width:'90%'}} onClick={e=>e.stopPropagation()}>
+        <h3 style={{fontSize:'16px',fontWeight:'600',marginBottom:'12px'}}>Confirmar exclusão</h3>
+        <p style={{fontSize:'14px',color:'var(--text2)',marginBottom:'20px'}}>Deseja realmente excluir este apontamento?</p>
+        <div style={{display:'flex',gap:'12px',justifyContent:'flex-end'}}>
+          <button onClick={()=>setShowDel(null)} style={{padding:'8px 20px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:'14px'}}>Cancelar</button>
+          <button onClick={async()=>{await delEntry(showDel);setShowDel(null)}} style={{padding:'8px 20px',background:'var(--red)',color:'#fff',borderRadius:'var(--radius)',fontSize:'14px',fontWeight:'600'}}>Excluir</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ========== MAIN RENDER ==========
+  return(
+    <div style={{height:'100%',display:'flex',flexDirection:'column'}}>
+      <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 24px',height:'56px',background:'var(--surface)',borderBottom:'1px solid var(--border)',flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+          <span style={{fontSize:'18px',fontWeight:'700',letterSpacing:'-.5px'}}><span style={{color:'var(--red)'}}>P</span>rodution</span>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
+          <span style={{fontSize:'13px',color:'var(--text2)'}}>{user?.nome} <span style={{fontSize:'11px',padding:'2px 6px',borderRadius:'8px',background:user?.perfil==='admin'?'rgba(239,68,68,.15)':'rgba(161,161,170,.1)',color:user?.perfil==='admin'?'var(--red)':'var(--text3)',marginLeft:'4px'}}>{user?.perfil}</span></span>
+          <button onClick={logout} style={{padding:'6px 14px',background:'transparent',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:'12px',color:'var(--text3)',transition:'all .2s'}} onMouseOver={e=>{e.target.style.borderColor='var(--red)';e.target.style.color='var(--red)'}} onMouseOut={e=>{e.target.style.borderColor='var(--border)';e.target.style.color='var(--text3)'}}>Sair</button>
+        </div>
+      </header>
+      <div style={{display:'flex',flex:1,overflow:'hidden'}}>
+        <nav style={{width:'200px',background:'var(--surface)',borderRight:'1px solid var(--border)',padding:'12px 8px',flexShrink:0,overflowY:'auto'}}>
+          {tabs.map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{display:'flex',alignItems:'center',gap:'10px',width:'100%',padding:'10px 14px',borderRadius:'var(--radius)',fontSize:'13px',fontWeight:tab===t.id?'600':'400',background:tab===t.id?'var(--red)':undefined,color:tab===t.id?'#fff':'var(--text2)',transition:'all .2s',marginBottom:'2px',textAlign:'left'}} onMouseOver={e=>{if(tab!==t.id)e.target.style.background='var(--surface2)'}} onMouseOut={e=>{if(tab!==t.id)e.target.style.background='transparent'}}><span style={{fontSize:'16px'}}>{t.icon}</span>{t.label}</button>))}
+        </nav>
+        <main style={{flex:1,overflow:'auto',padding:'28px 32px'}}>
+          {tab==='dashboard'&&<DashboardView/>}
+          {tab==='cadastro'&&<CadastroView/>}
+          {tab==='historico'&&<HistoricoView/>}
+          {tab==='comparacao'&&<ComparacaoView/>}
+          {tab==='ocorrencias'&&<OcorrenciasView/>}
+          {tab==='usuarios'&&isAdmin&&<UsuariosView/>}
+          {tab==='configuracoes'&&<ConfigView/>}
+        </main>
+      </div>
+      <DelModal/>
+    </div>
+  );
 }
 
-// ═══════════════════════════════════════════════
-// STYLES (same as before, embedded)
-// ═══════════════════════════════════════════════
-const STYLES = `
-@keyframes fadeIn{from{opacity:0}to{opacity:1}}
-@keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html{font-size:14px}
-body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;line-height:1.6;-webkit-font-smoothing:antialiased}
-h1,h2,h3{font-family:'Instrument Serif',serif;font-weight:400}
-input,select,textarea,button{font-family:'Space Grotesk',sans-serif;font-size:.85rem}
-button{cursor:pointer}
-::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:4px}
-.app{max-width:1300px;margin:0 auto;padding:2rem 2.5rem 5rem;animation:fadeIn .3s ease}
-.hdr{display:flex;align-items:center;justify-content:space-between;padding:1.5rem 0 1.25rem;margin-bottom:1.25rem;border-bottom:1px solid var(--bd);flex-wrap:wrap;gap:.75rem}
-.hdr-l{display:flex;align-items:center;gap:1.25rem}
-.logo{width:40px;height:40px;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-family:'Instrument Serif',serif;font-size:1rem;font-style:italic;line-height:1}
-.logo span{color:var(--bg)}
-.hdr-text h1{font-size:1.5rem;letter-spacing:-.01em;color:var(--tx);line-height:1.1}
-.hdr-text .sub{font-size:.58rem;color:var(--tx4);letter-spacing:.12em;text-transform:uppercase;font-family:'DM Mono',monospace;margin-top:.2rem}
-.hdr-r{display:flex;align-items:center;gap:.6rem}
-.ver{font-size:.52rem;padding:.25rem .6rem;background:var(--sf2);border:1px solid var(--bd);color:var(--tx4);border-radius:12px;font-family:'DM Mono',monospace;font-weight:500}
-.os-bar{display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;background:var(--sf);border:1px solid var(--bd);border-radius:12px;margin-bottom:1.25rem;flex-wrap:wrap}
-.os-bar .os-field{display:flex;align-items:center;gap:.5rem;flex:1;min-width:200px}
-.os-bar .os-field label{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--tx3);white-space:nowrap}
-.os-bar .os-field input{padding:.45rem .7rem;background:var(--sf2);color:var(--accent);border:1px solid var(--accent-border);border-radius:8px;outline:none;font-family:'DM Mono',monospace;font-size:.9rem;font-weight:600;width:160px;text-transform:uppercase}
-.os-bar .os-field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
-.os-bar .os-field input::placeholder{color:var(--tx4);font-weight:400;font-size:.8rem;text-transform:none}
-.os-bar .os-status{font-size:.55rem;padding:.2rem .5rem;border-radius:8px;font-weight:600;white-space:nowrap}
-.os-bar .os-status.draft{background:var(--gold-bg);color:var(--gold);border:1px solid rgba(196,163,90,.2)}
-.os-bar .os-status.saved{background:var(--green-bg);color:var(--green);border:1px solid rgba(110,168,130,.2)}
-.os-bar .os-actions{display:flex;gap:.4rem;flex-wrap:wrap}
-.theme-fab{position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;width:44px;height:44px;border-radius:50%;background:var(--accent);border:none;display:flex;align-items:center;justify-content:center;font-size:1.15rem;box-shadow:0 4px 20px rgba(0,0,0,.3)}
-.theme-fab:hover{transform:scale(1.1)}
-.theme-panel{position:fixed;bottom:5rem;right:1.5rem;z-index:9998;background:var(--sf);border:1px solid var(--bd);border-radius:14px;padding:1.15rem;width:220px;box-shadow:0 12px 40px rgba(0,0,0,.35);animation:slideUp .25s;max-height:70vh;overflow-y:auto}
-.theme-panel-hd{font-size:.6rem;text-transform:uppercase;letter-spacing:.1em;color:var(--tx3);font-weight:700;margin-bottom:.85rem;padding-bottom:.5rem;border-bottom:1px solid var(--bd)}
-.theme-group{margin-bottom:.85rem}.theme-group:last-child{margin-bottom:0}
-.theme-group-label{font-size:.5rem;text-transform:uppercase;letter-spacing:.12em;color:var(--tx4);font-weight:700;margin-bottom:.5rem}
-.theme-opt{display:flex;align-items:center;gap:.6rem;padding:.5rem .65rem;border-radius:8px;border:1px solid transparent;cursor:pointer;font-size:.68rem;color:var(--tx2);font-weight:500;margin-bottom:.25rem}
-.theme-opt:hover{background:var(--sf2);border-color:var(--bd)}
-.theme-opt.active{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent);font-weight:600}
-.theme-dot{width:16px;height:16px;border-radius:50%;border:2px solid var(--bd);flex-shrink:0}
-.theme-opt.active .theme-dot{border-color:var(--accent)}
-.theme-check{margin-left:auto;font-size:.7rem;opacity:0}.theme-opt.active .theme-check{opacity:1}
-.nav{display:flex;gap:2px;padding:.35rem;background:var(--sf);border:1px solid var(--bd);border-radius:12px;margin-bottom:1.5rem;overflow-x:auto;position:sticky;top:.75rem;z-index:100}
-.nav button{padding:.5rem .85rem;background:transparent;color:var(--tx4);font-size:.65rem;font-weight:500;letter-spacing:.02em;text-transform:uppercase;border:1px solid transparent;border-radius:8px;white-space:nowrap}
-.nav button:hover{color:var(--tx2);background:var(--sf2)}
-.nav button.on{color:var(--accent);background:var(--accent-bg);border-color:var(--accent-border)}
-.sec{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:1.5rem;margin-bottom:1.25rem}
-.sec-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem}
-.sec-t{font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);display:flex;align-items:center;gap:.5rem}
-.sec-t::before{content:'';width:2px;height:12px;background:var(--accent);border-radius:1px;opacity:.6}
-.sec-badge{font-size:.58rem;padding:.2rem .6rem;background:var(--accent-bg);color:var(--accent);border-radius:14px;font-weight:600;border:1px solid var(--accent-border)}
-.fg{display:grid;grid-template-columns:repeat(auto-fill,minmax(195px,1fr));gap:.85rem;margin-bottom:1.25rem}
-.fi{display:flex;flex-direction:column;gap:.3rem}
-.fi label{font-size:.58rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--tx3)}
-.fi input,.fi select,.fi textarea{padding:.55rem .75rem;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:8px;outline:none;font-weight:400}
-.fi select{text-transform:none}
-.fi input,.fi textarea{text-transform:uppercase}
-.fi input:hover,.fi select:hover{border-color:var(--bd2)}
-.fi input:focus,.fi select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
-.fi input::placeholder{color:var(--tx4);text-transform:none}
-.ec{background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:.7rem .9rem;margin-bottom:.4rem;border-left:3px solid var(--accent)}
-.ec.meal{border-left-color:var(--violet)}
-.ec-hd{display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap}
-.ec-info{display:flex;gap:.85rem;flex-wrap:wrap;font-size:.73rem}
-.ec-info span{color:var(--tx2)}.ec-info strong{color:var(--tx);font-weight:500}
-.ec-dur{color:var(--accent)!important;font-weight:600!important;font-family:'DM Mono',monospace}
-.ec-meal{font-size:.55rem;color:var(--violet);background:var(--violet-bg);padding:.15rem .4rem;border-radius:8px;margin-left:.3rem;font-weight:600}
-.ec-acts{display:flex;gap:.25rem}
-.ec-acts button{padding:.2rem .4rem;background:transparent;color:var(--tx4);border:1px solid var(--bd);border-radius:6px;font-size:.58rem}
-.ec-acts button:hover{color:var(--tx2);border-color:var(--bd2)}
-.ec-acts button.del:hover{color:var(--rose);border-color:var(--rose)}
-.ec-acts button.m-on{color:var(--violet);border-color:var(--violet);background:var(--violet-bg)}
-.af{display:flex;gap:.4rem;flex-wrap:wrap;align-items:flex-end;margin-top:.65rem;padding-top:.65rem;border-top:1px dashed var(--bd)}
-.af .fi{flex:1;min-width:95px}.af .fi input{width:100%}
-.mcb{display:flex;align-items:center;gap:.4rem;padding:.5rem 0;white-space:nowrap}
-.mcb input{accent-color:var(--violet);width:16px;height:16px;cursor:pointer}
-.mcb label{font-size:.68rem;color:var(--tx3);cursor:pointer;user-select:none;font-weight:500}
-.btn{padding:.55rem 1.1rem;border-radius:8px;font-size:.68rem;font-weight:600;letter-spacing:.02em;text-transform:uppercase;display:inline-flex;align-items:center;gap:.4rem;border:none}
-.btn-p{background:var(--accent);color:var(--bg)}.btn-p:hover{filter:brightness(1.15)}
-.btn-s{background:var(--sf3);color:var(--tx2);border:1px solid var(--bd)}.btn-s:hover{border-color:var(--bd2);color:var(--tx)}
-.btn-d{background:transparent;color:var(--rose);border:1px solid rgba(194,112,112,.25)}.btn-d:hover{background:var(--rose-bg);border-color:var(--rose)}
-.btn-g{background:var(--green);color:var(--bg)}.btn-g:hover{filter:brightness(1.1)}
-.btn-w{background:var(--gold);color:var(--bg)}.btn-w:hover{filter:brightness(1.1)}
-.btn-sm{padding:.35rem .7rem;font-size:.62rem}
-.sg{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.85rem;margin-bottom:1.25rem}
-.sc{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:1rem 1.1rem;text-align:center;border-top:2px solid var(--accent)}
-.sc .v{font-family:'DM Mono',monospace;font-size:1.25rem;font-weight:500;color:var(--accent);margin-bottom:.1rem}
-.sc .l{font-size:.52rem;text-transform:uppercase;letter-spacing:.07em;color:var(--tx3);font-weight:600}
-.sc.bl{border-top-color:var(--accent)}.sc.bl .v{color:var(--accent)}
-.sc.gn{border-top-color:var(--green)}.sc.gn .v{color:var(--green)}
-.oee-duo{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.25rem}
-.oee-panel{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:1.25rem;position:relative;overflow:hidden}
-.oee-panel::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
-.oee-panel.ch::before{background:var(--accent)}.oee-panel.pc::before{background:var(--green)}
-.oee-panel .ot{font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;color:var(--tx3);margin-bottom:.6rem;font-weight:600;display:flex;align-items:center;gap:.4rem}
-.oee-panel.ch .ot::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent)}
-.oee-panel.pc .ot::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--green)}
-.oee-panel .ov{display:flex;gap:.75rem;flex-wrap:wrap}
-.oee-panel .oi{text-align:center;flex:1;min-width:70px}
-.oee-panel .ovv{font-family:'DM Mono',monospace;font-size:1.15rem;font-weight:500}
-.oee-panel.ch .ovv{color:var(--accent)}.oee-panel.pc .ovv{color:var(--green)}
-.oee-panel .ol{font-size:.48rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tx3);margin-top:.15rem;font-weight:600}
-.oee-diff{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:.85rem 1.1rem;margin-bottom:1.25rem;display:flex;align-items:center;justify-content:center;gap:.85rem;flex-wrap:wrap;font-size:.72rem}
-.df-l{color:var(--tx3);font-weight:600;font-size:.6rem;text-transform:uppercase;letter-spacing:.05em}
-.df-v{color:var(--gold);font-weight:600;font-family:'DM Mono',monospace}
-.df-bar{flex:1;max-width:200px;height:6px;background:var(--sf3);border-radius:3px;overflow:hidden;display:flex}
-.df-ch{background:var(--accent);height:100%}.df-pc{background:var(--green);height:100%}
-.df-tag{font-size:.5rem;padding:.15rem .4rem;border-radius:5px;font-weight:600}
-.df-tag.ch{background:var(--accent-bg);color:var(--accent)}.df-tag.pc{background:var(--green-bg);color:var(--green)}
-.cmp{display:grid;grid-template-columns:1fr auto 1fr;gap:1.25rem;align-items:center;padding:1.5rem;background:var(--sf2);border:1px solid var(--bd);border-radius:12px;margin-bottom:1rem}
-.cmp-s{text-align:center}.cmp-s .cl{font-size:.52rem;text-transform:uppercase;letter-spacing:.08em;color:var(--tx3);margin-bottom:.35rem;font-weight:600}
-.cmp-s .cv{font-family:'DM Mono',monospace;font-size:1.45rem;font-weight:500}.cmp-s .cs{font-size:.58rem;color:var(--tx4);margin-top:.2rem}
-.cmp-m{text-align:center;padding:0 .5rem}.cmp-a{font-size:1.3rem;color:var(--tx4)}
-.cmp-d{font-size:.55rem;color:var(--gold);margin-top:.2rem;font-weight:600;font-family:'DM Mono',monospace;background:var(--gold-bg);padding:.15rem .45rem;border-radius:5px}
-.cmp-s.ch .cv{color:var(--accent)}.cmp-s.pc .cv{color:var(--green)}
-.rt{width:100%;border-collapse:separate;border-spacing:0;font-size:.76rem}
-.rt th{text-align:left;padding:.55rem .7rem;background:var(--sf2);color:var(--tx3);font-size:.52rem;text-transform:uppercase;letter-spacing:.07em;font-weight:600;border-bottom:1px solid var(--bd)}
-.rt th:first-child{border-radius:8px 0 0 0}.rt th:last-child{border-radius:0 8px 0 0}
-.rt td{padding:.5rem .7rem;border-bottom:1px solid var(--bd);color:var(--tx2)}
-.mo{position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:1000;padding:1rem;animation:fadeIn .2s}
-.md{background:var(--sf);border:1px solid var(--bd);border-radius:16px;width:100%;max-width:540px;max-height:90vh;overflow-y:auto;animation:slideUp .25s;box-shadow:0 20px 50px rgba(0,0,0,.3)}
-.md-h{display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1px solid var(--bd)}
-.md-h h3{font-size:.85rem;letter-spacing:.04em;color:var(--accent)}
-.md-b{padding:1.25rem}.md-f{display:flex;justify-content:flex-end;gap:.6rem;padding:.9rem 1.25rem;border-top:1px solid var(--bd)}
-.empty{text-align:center;padding:2.5rem;color:var(--tx4);font-size:.78rem}
-.al{padding:.6rem .9rem;border-radius:8px;font-size:.7rem;margin-bottom:.75rem;font-weight:500}
-.al-w{background:var(--gold-bg);border:1px solid rgba(196,163,90,.18);color:var(--gold)}
-.al-s{background:var(--green-bg);border:1px solid rgba(110,168,130,.18);color:var(--green)}
-.fbox{background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:.65rem .85rem;font-size:.68rem;color:var(--tx3);margin-top:.65rem;line-height:1.7;font-family:'DM Mono',monospace}
-.fbox strong{color:var(--tx2)}.fbox .hl{color:var(--accent)}
-.os-card{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:1.15rem;cursor:pointer}
-.os-card:hover{border-color:var(--accent-border);box-shadow:0 4px 16px rgba(0,0,0,.15)}
-.os-card.selected{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
-.os-card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:.65rem}
-.os-card-num{font-family:'DM Mono',monospace;font-size:.95rem;font-weight:600;color:var(--accent)}
-.os-card-date{font-size:.6rem;color:var(--tx4);font-family:'DM Mono',monospace}
-.os-card-client{font-size:.78rem;color:var(--tx);font-weight:500;margin-bottom:.5rem}
-.os-card-stats{display:flex;gap:1rem;flex-wrap:wrap;font-size:.6rem;color:var(--tx3)}
-.os-card-stats span{display:flex;align-items:center;gap:.3rem}
-.os-card-stats strong{color:var(--tx2);font-weight:600}
-.os-card-acts{display:flex;gap:.3rem;margin-top:.65rem;padding-top:.65rem;border-top:1px solid var(--bd)}
-.os-card-acts button{font-size:.58rem;padding:.25rem .5rem}
-.rank-item{display:flex;align-items:center;gap:1rem;padding:.85rem 1rem;background:var(--sf2);border:1px solid var(--bd);border-radius:10px;margin-bottom:.5rem}
-.rank-pos{font-family:'DM Mono',monospace;font-size:1.1rem;font-weight:700;color:var(--accent);width:32px;text-align:center}
-.rank-pos.gold{color:#f59e0b}.rank-pos.silver{color:#94a3b8}.rank-pos.bronze{color:#d97706}
-.rank-info{flex:1}
-.rank-os{font-family:'DM Mono',monospace;font-size:.75rem;font-weight:600;color:var(--tx)}
-.rank-client{font-size:.65rem;color:var(--tx3)}
-.rank-val{font-family:'DM Mono',monospace;font-size:1.2rem;font-weight:600;text-align:right}
-.rank-val.high{color:var(--green)}.rank-val.mid{color:var(--accent)}.rank-val.low{color:var(--tx3)}
-.rank-bar-wrap{width:120px;height:6px;background:var(--sf3);border-radius:3px;overflow:hidden}
-.rank-bar{height:100%;border-radius:3px}
-.compare-grid{display:grid;gap:1rem;margin-bottom:1.25rem}
-.compare-grid.cols-2{grid-template-columns:1fr 1fr}
-.compare-grid.cols-3{grid-template-columns:1fr 1fr 1fr}
-.compare-grid.cols-4{grid-template-columns:repeat(4,1fr)}
-.compare-col{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:1.15rem}
-.compare-col.best{border-color:var(--green);box-shadow:0 0 0 3px var(--green-bg)}
-.compare-col .cc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;padding-bottom:.6rem;border-bottom:1px solid var(--bd)}
-.compare-col .cc-num{font-family:'DM Mono',monospace;font-weight:700;color:var(--accent)}
-.compare-col .cc-client{font-size:.7rem;color:var(--tx3)}
-.compare-col .cc-row{display:flex;justify-content:space-between;padding:.4rem 0;border-bottom:1px dashed var(--bd);font-size:.72rem}
-.compare-col .cc-row:last-child{border-bottom:none}
-.compare-col .cc-label{color:var(--tx3)}
-.compare-col .cc-val{font-family:'DM Mono',monospace;font-weight:600;color:var(--tx)}
-.chk-card{display:flex;align-items:center;gap:.6rem;padding:.6rem .85rem;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;cursor:pointer;margin-bottom:.35rem}
-.chk-card:hover{border-color:var(--bd2)}
-.chk-card.active{border-color:var(--accent);background:var(--accent-bg)}
-.chk-card input{accent-color:var(--accent);width:16px;height:16px;cursor:pointer}
-.chk-card .chk-info{flex:1;font-size:.72rem}
-.chk-card .chk-os{font-family:'DM Mono',monospace;font-weight:600;color:var(--tx)}
-.chk-card .chk-detail{font-size:.6rem;color:var(--tx3)}
-@media(max-width:768px){.app{padding:1rem 1.25rem 5rem}.hdr{flex-direction:column;align-items:flex-start;gap:.5rem}.os-bar{flex-direction:column;align-items:stretch}.os-bar .os-field{width:100%}.os-bar .os-field input{width:100%}.fg{grid-template-columns:1fr 1fr}.sg{grid-template-columns:repeat(2,1fr)}.oee-duo{grid-template-columns:1fr}.cmp{grid-template-columns:1fr;gap:.75rem}.cmp-m{transform:rotate(90deg)}.af{flex-direction:column}.af .fi{min-width:100%}.nav button{padding:.45rem .6rem;font-size:.58rem}.compare-grid{grid-template-columns:1fr!important}.rank-bar-wrap{display:none}}
-@media(max-width:480px){.fg{grid-template-columns:1fr}}
-`
+// ---- SMALL COMPONENTS ----
+const iStyle={width:'100%',padding:'10px 14px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:'var(--radius)',color:'var(--text)',fontSize:'14px',outline:'none',transition:'border-color .2s'};
+const FG=({label,children,full})=>(<div style={{gridColumn:full?'1 / -1':undefined}}><label style={{fontSize:'13px',color:'var(--text2)',display:'block',marginBottom:'6px'}}>{label}</label>{children}</div>);
+const SV=({value,onChange,options,ph})=>(<select value={value} onChange={e=>onChange(e.target.value)} style={iStyle}><option value="">{ph||'Selecione'}</option>{options.map(o=>{const v=typeof o==='object'?o.value:o;const l=typeof o==='object'?o.label:o;return <option key={v} value={v}>{l}</option>})}</select>);
+
+// Focus style
+document.addEventListener('focusin',e=>{if(e.target.matches('input,select,textarea'))e.target.style.borderColor='var(--red)'});
+document.addEventListener('focusout',e=>{if(e.target.matches('input,select,textarea'))e.target.style.borderColor='var(--border)'});
+
+const root=ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App/>);
+</script>
+</body>
+</html>
